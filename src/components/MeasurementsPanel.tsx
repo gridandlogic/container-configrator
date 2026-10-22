@@ -68,7 +68,15 @@ export const MeasurementsPanel: React.FC<MeasurementsPanelProps> = ({
   const diagonalVal = isMetric ? (diagonalFt * 0.3048).toFixed(2) : diagonalFt.toFixed(1);
 
   // Estimated Corten steel tare weight (approx 3.7 to 4.2 metric tons for 40ft HC)
-  const tareWeightTons = modelConfig.lengthFt === 20 ? 2.3 : modelConfig.layoutType === 'double-wide' ? 8.2 : modelConfig.layoutType === 'stacked-2story' ? 8.8 : 4.1;
+  const tareWeightTons = modelConfig.layoutType === 'expandable-foldout'
+    ? 12.4
+    : modelConfig.lengthFt === 20
+      ? 2.3
+      : modelConfig.layoutType === 'double-wide'
+        ? 8.2
+        : modelConfig.layoutType === 'stacked-2story'
+          ? 8.8
+          : 4.1;
 
   // Lot Coverage
   const lotAreaSqFt = siteConfig.lotWidthFt * siteConfig.lotDepthFt;

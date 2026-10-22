@@ -9,6 +9,7 @@ export type LayoutType =
   | 'stacked-2story'
   | 'cantilever-offset'
   | 'skybridge-compound'
+  | 'expandable-foldout'
   | 'custom';
 
 export type ExteriorMaterial = 
@@ -64,8 +65,12 @@ export type BedroomType =
   | 'japandi-platform' 
   | 'executive-study' 
   | 'desk-study'
+  | 'portable-office'
+  | 'meeting-suite'
   | 'dual-bunk' 
   | 'nordic-minimal';
+
+export type SpaceUse = 'home' | 'office' | 'retail' | 'hospitality';
 
 export type KitchenColor = 
   | 'matte-obsidian' 
@@ -158,6 +163,8 @@ export interface ContainerModelConfig {
   widthFt: number;
   heightFt: number;
   layoutType: LayoutType;
+  spaceUse?: SpaceUse;
+  foldoutState?: 'expanded' | 'transport';
   exteriorMaterial: ExteriorMaterial;
   exteriorColor: string;
   colorName: string;

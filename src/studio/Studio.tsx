@@ -2,12 +2,13 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import Controls from "./Controls";
 import Viewport, { ViewerHandle } from "./Viewport";
 import FloorPlan from "./FloorPlan";
-import { addLayoutItem, correctOverlaps, entryClearance, ItemKind, LayoutItem, nearestFreePlacement, presetLayout } from "./layout";
+import { addLayoutItem, correctOverlaps, entryClearance, ItemKind, LayoutItem, LayoutPreset, nearestFreePlacement, presetLayout } from "./layout";
 import {
   CameraFocus,
   CameraRequest,
   configReducer,
   DEFAULT_CONFIG,
+  layoutDimensions,
   StudioConfig,
 } from "./config";
 import { isInteriorFocus } from "./camera";
@@ -34,17 +35,17 @@ export default function Studio() {
   const [config, dispatch] = useReducer(configReducer, DEFAULT_CONFIG, (initial) => {
     try {
       const saved = JSON.parse(localStorage.getItem(DESIGN_STORAGE_KEY) || "null");
-      return saved && (saved.size === 20 || saved.size === 40) && Array.isArray(saved.layout)
-        ? { ...initial, ...saved, layout: correctOverlaps(saved.layout, saved.size === 20 ? 6.058 : 12.192, entryClearance(saved.doorStyle ?? initial.doorStyle, saved.doorSide ?? initial.doorSide, saved.size === 20 ? 6.058 : 12.192, 2.438 * (saved.containers === 2 ? 2 : 1)), 2.438 * (saved.containers === 2 ? 2 : 1)) }
-        : initial;
+      if (!saved || (saved.size !== 20 && saved.size !== 40) || !Array.isArray(saved.layout)) return initial;
+      const hydrated = { ...initial, ...saved } as StudioConfig;
+      const bounds = layoutDimensions(hydrated);
+      return { ...hydrated, layout: correctOverlaps(saved.layout, bounds.length, entryClearance(hydrated.doorStyle, hydrated.doorSide, bounds.length, bounds.width), bounds.width) };
     } catch { return initial; }
   });
   useEffect(() => {
-    const length = config.size === 20 ? 6.058 : 12.192;
-    const width = 2.438 * config.containers;
+    const { length, width } = layoutDimensions(config);
     const corrected = correctOverlaps(config.layout, length, entryClearance(config.doorStyle, config.doorSide, length, width), width);
     if (corrected.some((item, index) => item.x !== config.layout[index].x || item.z !== config.layout[index].z || item.onTopOf !== config.layout[index].onTopOf)) dispatch({ layout: corrected });
-  }, [config.layout, config.size, config.containers, config.doorStyle, config.doorSide]);
+  }, [config.layout, config.size, config.containers, config.buildingType, config.foldoutState, config.doorStyle, config.doorSide]);
   const [mode, setMode] = useState<"plan" | "3d">("plan");
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [layoutNotice, setLayoutNotice] = useState("Choose a template or add a piece, then drag it in the plan.");
@@ -63,9 +64,13 @@ export default function Studio() {
   };
   const change = (patch: Partial<StudioConfig>, view: CameraFocus) => {
     setMode("3d");
-    if ((patch.size && patch.size !== config.size) || (patch.containers && patch.containers !== config.containers)) {
-      const length = (patch.size ?? config.size) === 20 ? 6.058 : 12.192;
-      const width = 2.438 * (patch.containers ?? config.containers);
+    if (
+      (patch.size && patch.size !== config.size) ||
+      (patch.containers && patch.containers !== config.containers) ||
+      (patch.buildingType && patch.buildingType !== config.buildingType)
+    ) {
+      const nextConfig = { ...config, ...patch };
+      const { length, width } = layoutDimensions(nextConfig);
       const shifted = config.layout.map((item) => item.kind === "bathroom" ? { ...item, x: -(length / 2 - 0.88) } : item);
       const kept: LayoutItem[] = [];
       const entry = entryClearance(config.doorStyle, config.doorSide, length, width);
@@ -86,18 +91,49 @@ export default function Studio() {
     }));
   };
   const updateLayout = (layout: LayoutItem[]) => {
-    const length = config.size === 20 ? 6.058 : 12.192, width = 2.438 * config.containers;
+    const { length, width } = layoutDimensions(config);
     dispatch({ layout: correctOverlaps(layout, length, entryClearance(config.doorStyle, config.doorSide, length, width), width) });
   };
-  const preset = (name: "studio" | "work" | "stay" | "empty") => {
-    updateLayout(presetLayout(name, config.size === 20 ? 6.058 : 12.192));
+  const preset = (name: LayoutPreset) => {
+    const shellPatch: Partial<StudioConfig> =
+      name === "focus-office"
+        ? { size: 20, containers: 1, buildingType: "portable-office", windowStyle: "glass", windowSide: "both", doorStyle: "personnel", cutaway: true }
+        : name === "team-office"
+          ? { size: 40, containers: 1, buildingType: "portable-office", windowStyle: "glass", windowSide: "both", doorStyle: "sliding", cutaway: true }
+          : name === "coffee-kiosk"
+            ? { size: 20, containers: 1, buildingType: "retail-kiosk", windowStyle: "glass", windowSide: "left", doorStyle: "personnel", cutaway: false }
+            : name === "courtyard-home"
+              ? { size: 40, containers: 1, buildingType: "courtyard-u", windowStyle: "glass", windowSide: "both", doorStyle: "sliding", cutaway: true }
+              : name === "l-courtyard-home"
+                ? { size: 40, containers: 1, buildingType: "courtyard-l", windowStyle: "picture", windowSide: "both", doorStyle: "sliding", cutaway: true }
+                : name === "stacked-office"
+                  ? { size: 40, containers: 1, buildingType: "stacked-office", windowStyle: "glass", windowSide: "both", doorStyle: "sliding", cutaway: false }
+                  : name === "foldout-home"
+                    ? { size: 40, containers: 1, buildingType: "foldout-home", foldoutState: "expanded", windowStyle: "glass", windowSide: "both", doorStyle: "sliding", cutaway: true }
+                    : name === "empty"
+                      ? {}
+                      : { buildingType: "standard" };
+    const nextConfig = { ...config, ...shellPatch };
+    const bounds = layoutDimensions(nextConfig);
+    const layout = correctOverlaps(
+      presetLayout(name, bounds.length, bounds.width),
+      bounds.length,
+      entryClearance(nextConfig.doorStyle, nextConfig.doorSide, bounds.length, bounds.width),
+      bounds.width,
+    );
+    dispatch({ ...shellPatch, layout });
     setSelectedItemId(null);
     setMode("plan");
-    setLayoutNotice(`${name === "empty" ? "Empty shell" : name === "studio" ? "Open studio" : name === "work" ? "Work office" : "Weekend stay"} layout loaded.`);
+    const labels: Record<LayoutPreset, string> = {
+      studio: "Open studio", work: "Work office", stay: "Weekend stay", empty: "Empty shell",
+      "focus-office": "Portable focus office", "team-office": "Team meeting office", "coffee-kiosk": "Coffee kiosk",
+      "courtyard-home": "U-courtyard family home", "l-courtyard-home": "L-courtyard home",
+      "stacked-office": "Stacked portable office", "foldout-home": "Expandable fold-out family home",
+    };
+    setLayoutNotice(`${labels[name]} layout loaded.`);
   };
   const add = (kind: ItemKind) => {
-    const length = config.size === 20 ? 6.058 : 12.192;
-    const width = 2.438 * config.containers;
+    const { length, width } = layoutDimensions(config);
     const next = addLayoutItem(config.layout, kind, length, entryClearance(config.doorStyle, config.doorSide, length, width), width);
     setMode("plan");
     if (next === config.layout) setLayoutNotice("No clear space for that item. Move or remove another piece first.");

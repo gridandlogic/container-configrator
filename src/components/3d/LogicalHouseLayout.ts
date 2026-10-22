@@ -916,48 +916,88 @@ function buildBathroomFurniture(
   const toiletType = modelConfig?.washroomToiletType || (type === 'powder-room' ? 'wall-hung-rimless' : 'western-commode');
   const wetType = modelConfig?.washroomWetType || (type === 'luxury-spa' ? 'shower-tub-combo' : (type === 'nordic-wetroom' ? 'walk-in-shower' : 'bathtub'));
 
+  const tileColor = modelConfig?.washroomTileStyle === 'black-slate'
+    ? 0x24282d
+    : modelConfig?.washroomTileStyle === 'sandstone'
+      ? 0xb8a287
+      : modelConfig?.washroomTileStyle === 'white-terrazzo'
+        ? 0xe7e5e4
+        : 0xd7d9dd;
+  const washroomTileMat = new THREE.MeshStandardMaterial({ color: tileColor, roughness: 0.76, metalness: 0.04 });
+  const tileFloor = new THREE.Mesh(new THREE.BoxGeometry(roomWidth - 0.2, 0.08, roomDepth - 0.2), washroomTileMat);
+  tileFloor.position.y = 0.04;
+  tileFloor.receiveShadow = true;
+  group.add(tileFloor);
+
+  // A full-height wet-zone feature wall makes the finish selection visible
+  // from the roof cutaway and gives mirrors and fixtures a realistic backing.
+  const featureWall = new THREE.Mesh(new THREE.BoxGeometry(roomWidth - 0.35, clearH - 0.4, 0.08), washroomTileMat);
+  featureWall.position.set(0, (clearH - 0.4) / 2, -halfD + 0.12);
+  group.add(featureWall);
+
   // -------------------------------------------------------------------------
   // FIXTURE 1: DESIGNER FLOATING VANITY & CERAMIC WASHBASIN (West Wall / North West)
   // -------------------------------------------------------------------------
   const vanityGroup = new THREE.Group();
-  vanityGroup.position.set(-halfW + 1.8, 1.6, -halfD + 1.1);
+  const isDoubleVanity = roomWidth >= 9 && type === 'luxury-spa';
+  const vanityWidth = isDoubleVanity ? 5.2 : 2.8;
+  vanityGroup.position.set(-halfW + vanityWidth / 2 + 0.35, 1.6, -halfD + 1.1);
 
   // Floating Oak / Walnut Vanity Cabinet with Soft-Close Drawers
-  const vanityBox = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.2, 1.8), mats.woodMat);
+  const vanityBox = new THREE.Mesh(new THREE.BoxGeometry(vanityWidth, 1.2, 1.8), mats.woodMat);
   vanityBox.castShadow = true;
   vanityGroup.add(vanityBox);
 
-  // White Ceramic Vessel Washbasin Bowl
-  const vesselBasin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.45, 1.2), mats.whiteMat);
-  vesselBasin.position.set(0, 0.82, 0);
-  vesselBasin.castShadow = true;
-  vanityGroup.add(vesselBasin);
+  const backsplash = new THREE.Mesh(new THREE.BoxGeometry(vanityWidth + 0.2, 3.9, 0.08), washroomTileMat);
+  backsplash.position.set(0, 2.2, -0.95);
+  vanityGroup.add(backsplash);
 
-  // High-Arc Chrome Washbasin Mixer Tap with Lever
-  const basinFaucet = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.7, 8), mats.chromeMat);
-  basinFaucet.position.set(0, 1.35, -0.45);
-  vanityGroup.add(basinFaucet);
-  const faucetSpout = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.3), mats.chromeMat);
-  faucetSpout.position.set(0, 1.65, -0.32);
-  vanityGroup.add(faucetSpout);
+  const basinPositions = isDoubleVanity ? [-1.3, 1.3] : [0];
+  basinPositions.forEach((basinX) => {
+    // Oval ceramic vessel with a visible inner bowl and drain.
+    const vesselBasin = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.55, 0.38, 28), mats.whiteMat);
+    vesselBasin.scale.set(1.25, 1, 0.82);
+    vesselBasin.position.set(basinX, 0.82, 0);
+    vesselBasin.castShadow = true;
+    vanityGroup.add(vesselBasin);
 
-  // Backlit Round LED Halo Vanity Mirror mounted on wall
-  const mirror = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.06, 24), mats.chromeMat);
-  mirror.position.set(0, 2.7, -0.85);
-  mirror.rotation.x = Math.PI / 2;
-  vanityGroup.add(mirror);
+    const basinWell = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.04, 24), mats.chromeMat);
+    basinWell.scale.set(1.25, 1, 0.82);
+    basinWell.position.set(basinX, 1.03, 0);
+    vanityGroup.add(basinWell);
+    const drain = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.025, 16), mats.steelMat);
+    drain.position.set(basinX, 1.06, 0);
+    vanityGroup.add(drain);
 
-  const mirrorGlow = new THREE.PointLight(0xfff1e6, 0.9, 4.5);
-  mirrorGlow.position.set(0, 2.7, -0.5);
+    // High-arc mixer with a projecting spout.
+    const basinFaucet = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.72, 10), mats.chromeMat);
+    basinFaucet.position.set(basinX, 1.35, -0.52);
+    vanityGroup.add(basinFaucet);
+    const faucetSpout = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.36), mats.chromeMat);
+    faucetSpout.position.set(basinX, 1.66, -0.35);
+    vanityGroup.add(faucetSpout);
+
+    const mirror = new THREE.Mesh(new THREE.CylinderGeometry(0.92, 0.92, 0.06, 32), mats.chromeMat);
+    mirror.position.set(basinX, 2.8, -0.88);
+    mirror.rotation.x = Math.PI / 2;
+    vanityGroup.add(mirror);
+    const mirrorFace = new THREE.Mesh(new THREE.CylinderGeometry(0.79, 0.79, 0.035, 32), mats.glassMat);
+    mirrorFace.position.set(basinX, 2.8, -0.84);
+    mirrorFace.rotation.x = Math.PI / 2;
+    vanityGroup.add(mirrorFace);
+  });
+
+  const mirrorGlow = new THREE.PointLight(0xfff1e6, isDoubleVanity ? 1.25 : 0.9, 5.5);
+  mirrorGlow.position.set(0, 2.8, -0.45);
   vanityGroup.add(mirrorGlow);
 
   // Countertop Soap Dispenser & Folded Hand Towel
   const soapDispenser = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.3, 12), mats.chromeMat);
-  soapDispenser.position.set(0.9, 0.75, 0.2);
+  soapDispenser.position.set(vanityWidth / 2 - 0.35, 0.75, 0.2);
   vanityGroup.add(soapDispenser);
 
   const handTowel = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.1, 0.45), mats.whiteMat);
-  handTowel.position.set(-0.9, 0.65, 0.2);
+  handTowel.position.set(-vanityWidth / 2 + 0.35, 0.65, 0.2);
   vanityGroup.add(handTowel);
 
   group.add(vanityGroup);
@@ -970,9 +1010,16 @@ function buildBathroomFurniture(
 
   if (toiletType === 'western-commode') {
     // A. CLASSIC WESTERN COMMODE (Floor-mounted with close-coupled porcelain tank)
-    const basePedestal = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.2, 1.8), mats.whiteMat);
+    const basePedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.38, 1.15, 20), mats.whiteMat);
+    basePedestal.scale.z = 1.15;
     basePedestal.castShadow = true;
     commodeGroup.add(basePedestal);
+
+    const curvedBowl = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.5, 0.5, 24), mats.whiteMat);
+    curvedBowl.scale.z = 1.22;
+    curvedBowl.position.set(0, 0.5, 0.18);
+    curvedBowl.castShadow = true;
+    commodeGroup.add(curvedBowl);
 
     const closeCoupledTank = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 0.7), mats.whiteMat);
     closeCoupledTank.position.set(0, 0.8, -0.55);
@@ -988,8 +1035,10 @@ function buildBathroomFurniture(
     flushBtn.position.set(0, 1.6, -0.55);
     commodeGroup.add(flushBtn);
 
-    const softSeat = new THREE.Mesh(new THREE.BoxGeometry(1.34, 0.08, 1.2), mats.whiteMat);
-    softSeat.position.set(0, 0.64, 0.25);
+    const softSeat = new THREE.Mesh(new THREE.TorusGeometry(0.54, 0.08, 10, 28), mats.whiteMat);
+    softSeat.rotation.x = Math.PI / 2;
+    softSeat.scale.y = 1.25;
+    softSeat.position.set(0, 0.78, 0.18);
     commodeGroup.add(softSeat);
   } else if (toiletType === 'smart-bidet-wc') {
     // B. LUXURY SMART BIDET COMMODE (Japanese heated seat with LED nightlight)
@@ -1015,12 +1064,15 @@ function buildBathroomFurniture(
     commodeGroup.add(bidetGlow);
   } else {
     // C. WALL-HUNG RIMLESS WC (In-wall cistern with suspended bowl)
-    const suspendedBowl = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.95, 1.6), mats.whiteMat);
+    const suspendedBowl = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.46, 0.9, 24), mats.whiteMat);
+    suspendedBowl.scale.z = 1.3;
     suspendedBowl.position.set(0, 0.35, 0.1);
     suspendedBowl.castShadow = true;
     commodeGroup.add(suspendedBowl);
 
-    const seatLid = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.08, 1.65), mats.whiteMat);
+    const seatLid = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.075, 10, 28), mats.whiteMat);
+    seatLid.rotation.x = Math.PI / 2;
+    seatLid.scale.y = 1.28;
     seatLid.position.set(0, 0.85, 0.1);
     commodeGroup.add(seatLid);
 
@@ -1068,6 +1120,14 @@ function buildBathroomFurniture(
     tubInner.scale.set(1.4, 1.0, 0.9);
     tubGroup.add(tubInner);
 
+    const bathWater = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.05, 1.05, 0.05, 28),
+      new THREE.MeshPhysicalMaterial({ color: 0xa7d8e8, transmission: 0.72, transparent: true, opacity: 0.72, roughness: 0.08 })
+    );
+    bathWater.scale.set(1.35, 1, 0.82);
+    bathWater.position.y = 0.86;
+    tubGroup.add(bathWater);
+
     // Floor-Mounted Tall Chrome Tub Filler Faucet with Hand Shower Wand
     const fillerStand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.5, 12), mats.chromeMat);
     fillerStand.position.set(1.45, 0.45, 0);
@@ -1081,6 +1141,10 @@ function buildBathroomFurniture(
     handShower.position.set(1.45, 1.2, 0.2);
     tubGroup.add(handShower);
 
+    const bathCaddy = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 2.1), mats.woodMat);
+    bathCaddy.position.set(0.15, 1.08, 0);
+    tubGroup.add(bathCaddy);
+
     group.add(tubGroup);
   }
 
@@ -1088,10 +1152,23 @@ function buildBathroomFurniture(
     const showerGroup = new THREE.Group();
     showerGroup.position.set(halfW - 0.2, 0, -halfD + 1.7);
 
+    const showerTray = new THREE.Mesh(new THREE.BoxGeometry(3.35, 0.1, 3.0), washroomTileMat);
+    showerTray.position.set(-1.65, 0.08, 0);
+    showerTray.receiveShadow = true;
+    showerGroup.add(showerTray);
+
     // Frameless architectural glass screen partition
     const glassScreen = new THREE.Mesh(new THREE.BoxGeometry(0.08, clearH - 0.6, 2.8), mats.glassMat);
     glassScreen.position.set(-3.2, clearH / 2, 0);
     showerGroup.add(glassScreen);
+
+    const returnGlass = new THREE.Mesh(new THREE.BoxGeometry(3.1, clearH - 0.6, 0.08), mats.glassMat);
+    returnGlass.position.set(-1.65, clearH / 2, -1.46);
+    showerGroup.add(returnGlass);
+
+    const glassHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 10), mats.chromeMat);
+    glassHandle.position.set(-3.08, 3.3, 0.75);
+    showerGroup.add(glassHandle);
 
     // Matte Black / Chrome Rainfall Ceiling Showerhead
     const rainPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.2, 8), mats.steelMat);
@@ -1112,8 +1189,34 @@ function buildBathroomFurniture(
     nicheFrame.position.set(0, 3.8, 0);
     showerGroup.add(nicheFrame);
 
+    // Fine water streams make the rainfall fixture read clearly at close range.
+    const waterMat = new THREE.MeshPhysicalMaterial({ color: 0x9ed8ef, transparent: true, opacity: 0.34, transmission: 0.75, roughness: 0.05 });
+    [-0.28, 0, 0.28].forEach((dx) => {
+      const stream = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, clearH - 2.2, 6), waterMat);
+      stream.position.set(-1.6 + dx, clearH / 2 - 0.2, 0);
+      showerGroup.add(stream);
+    });
+
     group.add(showerGroup);
   }
+
+  // Heated towel rail and woven bath mat complete the usable washroom model.
+  const towelRail = new THREE.Group();
+  towelRail.position.set(halfW - 0.38, 3.0, halfD - 1.0);
+  [-0.55, 0, 0.55].forEach((railY) => {
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.5, 8), mats.chromeMat);
+    bar.rotation.z = Math.PI / 2;
+    bar.position.y = railY;
+    towelRail.add(bar);
+  });
+  group.add(towelRail);
+
+  const bathMat = new THREE.Mesh(
+    new THREE.BoxGeometry(Math.min(3.2, roomWidth - 0.8), 0.05, 1.4),
+    new THREE.MeshStandardMaterial({ color: 0xd6ccc2, roughness: 0.96 })
+  );
+  bathMat.position.set(0, 0.1, halfD - 1.15);
+  group.add(bathMat);
 
   return group;
 }
@@ -1134,30 +1237,186 @@ function buildBedroomFurniture(
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = `bedroom-${type}`;
-  group.userData.interiorRoom = 'bedroom';
+  group.userData.interiorRoom = type === 'portable-office' || type === 'meeting-suite' ? 'office' : 'bedroom';
   group.userData.roomWidthFt = roomWidth;
   group.userData.roomDepthFt = roomDepth;
 
   const halfW = roomWidth / 2;
   const halfD = roomDepth / 2;
 
-  if (type === 'dual-bunk') {
-    // Bunk beds placed against the West end wall
+  if (type === 'portable-office') {
+    const acousticMat = new THREE.MeshStandardMaterial({ color: 0x315b68, roughness: 0.92, metalness: 0.02 });
+    const screenGlowMat = new THREE.MeshBasicMaterial({ color: 0x8be9fd });
+    const stationSpacing = Math.min(3.4, Math.max(2.5, roomWidth / 2.4));
+
+    [-stationSpacing / 2, stationSpacing / 2].forEach((deskX, stationIndex) => {
+      const workstation = new THREE.Group();
+      workstation.position.set(deskX, 0, -halfD + 1.35);
+
+      const top = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.16, 1.65), mats.woodMat);
+      top.position.y = 2.45;
+      top.castShadow = true;
+      workstation.add(top);
+
+      [-1.15, 1.15].forEach((legX) => {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.35, 0.1), mats.steelMat);
+        leg.position.set(legX, 1.2, 0);
+        workstation.add(leg);
+      });
+
+      const monitor = new THREE.Mesh(new THREE.BoxGeometry(1.65, 1.05, 0.08), mats.screenMat);
+      monitor.position.set(0, 3.2, -0.45);
+      workstation.add(monitor);
+      const monitorGlow = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.9, 0.02), screenGlowMat);
+      monitorGlow.position.set(0, 3.2, -0.40);
+      workstation.add(monitorGlow);
+      const monitorArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.85, 8), mats.chromeMat);
+      monitorArm.position.set(0, 2.75, -0.48);
+      workstation.add(monitorArm);
+
+      const keyboard = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.42), mats.steelMat);
+      keyboard.position.set(0, 2.57, 0.3);
+      workstation.add(keyboard);
+
+      const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.18, 1.25), mats.sofaFabricMat);
+      chairSeat.position.set(0, 1.45, 1.6);
+      chairSeat.castShadow = true;
+      workstation.add(chairSeat);
+      const chairBack = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.65, 0.16), acousticMat);
+      chairBack.position.set(0, 2.25, 2.15);
+      workstation.add(chairBack);
+      const chairStem = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.3, 8), mats.chromeMat);
+      chairStem.position.set(0, 0.72, 1.6);
+      workstation.add(chairStem);
+
+      const taskLight = new THREE.PointLight(0xffedd5, 0.65, 4.5);
+      taskLight.position.set(stationIndex === 0 ? -0.9 : 0.9, 4.6, 0);
+      workstation.add(taskLight);
+      group.add(workstation);
+    });
+
+    const acousticDivider = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.1, 1.75), acousticMat);
+    acousticDivider.position.set(0, 3.05, -halfD + 1.35);
+    group.add(acousticDivider);
+
+    const storage = new THREE.Mesh(new THREE.BoxGeometry(Math.min(5.8, roomWidth - 1.2), 2.5, 1.05), mats.cabinetMat);
+    storage.position.set(0, 1.25, halfD - 0.65);
+    storage.castShadow = true;
+    group.add(storage);
+    for (let x = -2; x <= 2; x += 1) {
+      const pull = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.04, 0.08), mats.chromeMat);
+      pull.position.set(x, 1.45, halfD - 1.2);
+      group.add(pull);
+    }
+
+  } else if (type === 'meeting-suite') {
+    const tableLength = Math.min(8.5, roomWidth - 1.6);
+    const table = new THREE.Mesh(new THREE.BoxGeometry(tableLength, 0.22, 3.0), mats.woodMat);
+    table.position.set(0, 2.45, 0.25);
+    table.castShadow = true;
+    group.add(table);
+
+    const tableBase = new THREE.Mesh(new THREE.BoxGeometry(tableLength - 2.0, 2.3, 0.8), mats.steelMat);
+    tableBase.position.set(0, 1.2, 0.25);
+    group.add(tableBase);
+
+    [-tableLength * 0.3, 0, tableLength * 0.3].forEach((chairX) => {
+      [-1, 1].forEach((side) => {
+        const chair = new THREE.Group();
+        chair.position.set(chairX, 0, 0.25 + side * 2.45);
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 1.15), mats.sofaFabricMat);
+        seat.position.y = 1.45;
+        chair.add(seat);
+        const back = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.5, 0.14), mats.bedMat);
+        back.position.set(0, 2.15, side * 0.52);
+        chair.add(back);
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.25, 8), mats.chromeMat);
+        stem.position.y = 0.7;
+        chair.add(stem);
+        group.add(chair);
+      });
+    });
+
+    const presentationScreen = new THREE.Mesh(new THREE.BoxGeometry(0.1, 3.4, 5.3), mats.screenMat);
+    presentationScreen.position.set(-halfW + 0.2, 4.15, 0);
+    group.add(presentationScreen);
+    const screenImage = new THREE.Mesh(new THREE.BoxGeometry(0.03, 3.05, 4.9), new THREE.MeshBasicMaterial({ color: 0x123047 }));
+    screenImage.position.set(-halfW + 0.27, 4.15, 0);
+    group.add(screenImage);
+    const conferenceCamera = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.32, 12), mats.steelMat);
+    conferenceCamera.rotation.z = Math.PI / 2;
+    conferenceCamera.position.set(-halfW + 0.38, 6.0, 0);
+    group.add(conferenceCamera);
+
+    const credenza = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.1, Math.min(5.2, roomDepth - 1.5)), mats.cabinetMat);
+    credenza.position.set(halfW - 0.6, 1.05, 0);
+    credenza.castShadow = true;
+    group.add(credenza);
+
+    [-1.7, 0, 1.7].forEach((lightX) => {
+      const pendant = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.42, 0.35, 16), mats.goldBrassMat);
+      pendant.position.set(lightX, clearH - 0.75, 0.25);
+      group.add(pendant);
+      const light = new THREE.PointLight(0xffedd5, 0.65, 5.5);
+      light.position.set(lightX, clearH - 0.95, 0.25);
+      group.add(light);
+    });
+
+  } else if (type === 'dual-bunk') {
     const bunkGroup = new THREE.Group();
-    bunkGroup.position.set(-halfW + 2.0, 0.2, -halfD + 2.0);
+    bunkGroup.position.set(-halfW + 2.0, 0.2, -halfD + 3.25);
+    const bunkW = 3.5;
+    const bunkL = Math.min(6.2, roomDepth - 1.2);
 
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(3.6, 6.2, 6.4), mats.woodMat);
-    frame.position.set(0, 3.1, 0);
-    frame.castShadow = true;
-    bunkGroup.add(frame);
+    // Open timber posts replace the previous solid block, so both mattresses,
+    // circulation and guard details remain visible in cutaway mode.
+    [-bunkW / 2, bunkW / 2].forEach((px) => {
+      [-bunkL / 2, bunkL / 2].forEach((pz) => {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 6.2, 0.18), mats.woodMat);
+        post.position.set(px, 3.1, pz);
+        post.castShadow = true;
+        bunkGroup.add(post);
+      });
+    });
 
-    const lowerMattress = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 6.0), mats.whiteMat);
-    lowerMattress.position.set(0, 1.2, 0);
-    bunkGroup.add(lowerMattress);
+    [1.0, 4.1].forEach((bedY) => {
+      const platform = new THREE.Mesh(new THREE.BoxGeometry(bunkW, 0.24, bunkL), mats.woodMat);
+      platform.position.set(0, bedY, 0);
+      platform.castShadow = true;
+      bunkGroup.add(platform);
+      const mattress = new THREE.Mesh(new THREE.BoxGeometry(bunkW - 0.28, 0.58, bunkL - 0.28), mats.whiteMat);
+      mattress.position.set(0, bedY + 0.38, 0);
+      mattress.castShadow = true;
+      bunkGroup.add(mattress);
+      const duvet = new THREE.Mesh(new THREE.BoxGeometry(bunkW - 0.42, 0.18, bunkL * 0.62), mats.blanketMat);
+      duvet.position.set(0, bedY + 0.73, 0.75);
+      bunkGroup.add(duvet);
+      const pillow = new THREE.Mesh(new THREE.BoxGeometry(bunkW - 0.75, 0.28, 1.05), mats.pillowMat);
+      pillow.position.set(0, bedY + 0.77, -bunkL / 2 + 0.8);
+      bunkGroup.add(pillow);
+    });
 
-    const upperMattress = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.7, 6.0), mats.whiteMat);
-    upperMattress.position.set(0, 4.4, 0);
-    bunkGroup.add(upperMattress);
+    [-bunkL / 2, bunkL / 2].forEach((railZ) => {
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(bunkW, 0.16, 0.14), mats.woodMat);
+      guard.position.set(0, 5.1, railZ);
+      bunkGroup.add(guard);
+    });
+
+    [0, 1, 2, 3, 4].forEach((step) => {
+      const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, bunkW - 0.4, 8), mats.steelMat);
+      rung.rotation.z = Math.PI / 2;
+      rung.position.set(0, 1.1 + step * 0.9, bunkL / 2 + 0.3);
+      bunkGroup.add(rung);
+    });
+
+    [-0.85, 0.85].forEach((drawerX) => {
+      const drawer = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.55, bunkL - 0.7), mats.cabinetMat);
+      drawer.position.set(drawerX, 0.35, 0);
+      bunkGroup.add(drawer);
+      const pull = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.08), mats.chromeMat);
+      pull.position.set(drawerX, 0.43, bunkL / 2 - 0.32);
+      bunkGroup.add(pull);
+    });
 
     group.add(bunkGroup);
 
@@ -1491,7 +1750,49 @@ function buildBedroomFurniture(
       wardrobe.position.set(bedCenterX + 1.2, (clearH - 0.6) / 2 + 0.2, -halfD + 0.8);
       wardrobe.castShadow = true;
       group.add(wardrobe);
+
+      const wardrobeFrontZ = -halfD + 1.51;
+      for (let wx = -wardrobeW / 2 + 0.35; wx < wardrobeW / 2; wx += 0.45) {
+        const flute = new THREE.Mesh(new THREE.BoxGeometry(0.055, clearH - 1.0, 0.07), mats.woodMat);
+        flute.position.set(bedCenterX + 1.2 + wx, clearH / 2 + 0.2, wardrobeFrontZ);
+        group.add(flute);
+      }
+      [-0.32, 0.32].forEach((handleOffset) => {
+        const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.0, 8), mats.goldBrassMat);
+        handle.position.set(bedCenterX + 1.2 + handleOffset, clearH / 2, wardrobeFrontZ + 0.08);
+        group.add(handle);
+      });
     }
+
+    // Upholstered foot bench gives the bed a believable circulation endpoint
+    // and remains within the available room width on compact plans.
+    const benchX = Math.min(halfW - 0.62, bedCenterX + bedLength / 2 + 0.62);
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.68, bedWidth - 0.8), mats.bedMat);
+    bench.position.set(benchX, 0.62, bedCenterZ);
+    bench.castShadow = true;
+    group.add(bench);
+    [-bedWidth / 2 + 0.65, bedWidth / 2 - 0.65].forEach((benchZ) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.6, 8), mats.steelMat);
+      leg.position.set(benchX, 0.3, bedCenterZ + benchZ);
+      group.add(leg);
+    });
+
+    // Framed art and ceiling spots add vertical detail visible in walkthroughs.
+    const artFrame = new THREE.Mesh(new THREE.BoxGeometry(0.09, 2.2, 3.4), mats.woodMat);
+    artFrame.position.set(-halfW + 0.16, 5.35, bedCenterZ);
+    group.add(artFrame);
+    const art = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.85, 3.05), mats.blanketMat);
+    art.position.set(-halfW + 0.22, 5.35, bedCenterZ);
+    group.add(art);
+
+    [-1.7, 0, 1.7].forEach((spotZ) => {
+      const spot = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.08, 12), mats.steelMat);
+      spot.position.set(bedCenterX, clearH - 0.12, bedCenterZ + spotZ);
+      group.add(spot);
+      const glow = new THREE.PointLight(0xffe6c7, 0.38, 4.0);
+      glow.position.set(bedCenterX, clearH - 0.35, bedCenterZ + spotZ);
+      group.add(glow);
+    });
   }
 
   return group;

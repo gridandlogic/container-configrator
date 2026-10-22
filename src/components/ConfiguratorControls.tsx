@@ -155,7 +155,7 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
   onOpenAiArchitect,
 }) => {
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
-  const [presetSizeFilter, setPresetSizeFilter] = useState<'all' | '20ft' | '30ft' | '40ft' | 'double-wide' | 'multi-story'>('all');
+  const [presetSizeFilter, setPresetSizeFilter] = useState<'all' | '20ft' | '30ft' | '40ft' | 'double-wide' | 'multi-story' | 'portable' | 'foldable'>('all');
   const [stillCreateConfirmed, setStillCreateConfirmed] = useState<boolean>(false);
   const costBreakdown = calculateConfigurationCost(modelConfig);
 
@@ -394,7 +394,15 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
         {/* ======================================================================= */}
         {(() => {
           const isCompact = modelConfig.lengthFt <= 24 && modelConfig.layoutType === 'single';
-          const currentSqFt = modelConfig.lengthFt * (modelConfig.layoutType === 'double-wide' ? 16 : modelConfig.layoutType === 'triple-wide' ? 24 : 8);
+          const currentSqFt = modelConfig.lengthFt * (
+            modelConfig.layoutType === 'expandable-foldout' && modelConfig.foldoutState === 'transport'
+              ? 8
+              : modelConfig.layoutType === 'double-wide'
+                ? 16
+                : modelConfig.layoutType === 'triple-wide' || modelConfig.layoutType === 'expandable-foldout'
+                  ? 24
+                  : 8
+          );
           const hasMultiplePartitions = (modelConfig.partitions?.length || 0) >= 2;
           const isHighRequirement = modelConfig.bedroomType === 'master-suite' || modelConfig.kitchenType === 'chef-island' || hasMultiplePartitions;
           const isSizeConstrained = isCompact && (isHighRequirement || modelConfig.lengthFt <= 20);
@@ -752,12 +760,14 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
               {/* Size Category Filter Tabs */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-2.5 scrollbar-none text-[11px] font-mono">
                 {[
-                  { id: 'all', label: 'All (20)' },
-                  { id: '20ft', label: '20ft (5)' },
-                  { id: '30ft', label: '30ft (5)' },
-                  { id: '40ft', label: '40/45ft (5)' },
-                  { id: 'double-wide', label: '16ft Double (5)' },
-                  { id: 'multi-story', label: 'Multi-Story (2)' },
+                  { id: 'all', label: `All (${ARCHITECTURAL_PRESETS.length})` },
+                  { id: 'portable', label: `Portable (${ARCHITECTURAL_PRESETS.filter((p) => p.spaceUse === 'office' || p.spaceUse === 'retail' || p.spaceUse === 'hospitality').length})` },
+                  { id: 'foldable', label: `Foldable (${ARCHITECTURAL_PRESETS.filter((p) => p.layoutType === 'expandable-foldout').length})` },
+                  { id: '20ft', label: `20ft (${ARCHITECTURAL_PRESETS.filter((p) => p.lengthFt === 20).length})` },
+                  { id: '30ft', label: `30ft (${ARCHITECTURAL_PRESETS.filter((p) => p.lengthFt === 30).length})` },
+                  { id: '40ft', label: `40/45ft (${ARCHITECTURAL_PRESETS.filter((p) => (p.lengthFt === 40 || p.lengthFt === 45) && p.layoutType === 'single').length})` },
+                  { id: 'double-wide', label: `Wide Homes (${ARCHITECTURAL_PRESETS.filter((p) => p.layoutType === 'double-wide' || p.layoutType === 'triple-wide').length})` },
+                  { id: 'multi-story', label: `Courtyard & Multi (${ARCHITECTURAL_PRESETS.filter((p) => ['stacked-2story', 'cantilever-offset', 'l-shape', 'u-shape'].includes(p.layoutType)).length})` },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -781,9 +791,11 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
                   if (presetSizeFilter === 'all') return true;
                   if (presetSizeFilter === '20ft') return p.lengthFt === 20;
                   if (presetSizeFilter === '30ft') return p.lengthFt === 30;
-                  if (presetSizeFilter === '40ft') return (p.lengthFt === 40 || p.lengthFt === 45) && p.layoutType !== 'double-wide';
-                  if (presetSizeFilter === 'double-wide') return p.layoutType === 'double-wide' || p.widthFt >= 14;
-                  if (presetSizeFilter === 'multi-story') return p.layoutType === 'stacked-2story' || p.layoutType === 'l-shape';
+                  if (presetSizeFilter === '40ft') return (p.lengthFt === 40 || p.lengthFt === 45) && p.layoutType === 'single';
+                  if (presetSizeFilter === 'double-wide') return p.layoutType === 'double-wide' || p.layoutType === 'triple-wide';
+                  if (presetSizeFilter === 'multi-story') return ['stacked-2story', 'cantilever-offset', 'l-shape', 'u-shape'].includes(p.layoutType);
+                  if (presetSizeFilter === 'portable') return p.spaceUse === 'office' || p.spaceUse === 'retail' || p.spaceUse === 'hospitality';
+                  if (presetSizeFilter === 'foldable') return p.layoutType === 'expandable-foldout';
                   return true;
                 }).map((preset) => {
                   const isSelected = modelConfig.floorPlanPresetId === preset.floorPlanPresetId || modelConfig.name === preset.name;
@@ -862,7 +874,16 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
                   return (
                     <button
                       key={layout.id}
-                      onClick={() => onUpdateModel({ layoutType: layout.id as LayoutType })}
+                      onClick={() => {
+                        const nextLayout = layout.id as LayoutType;
+                        const dimensionUpdate: Partial<ContainerModelConfig> = { layoutType: nextLayout };
+                        if (nextLayout === 'single') dimensionUpdate.widthFt = 8;
+                        if (nextLayout === 'double-wide') dimensionUpdate.widthFt = 16;
+                        if (nextLayout === 'triple-wide' || nextLayout === 'expandable-foldout') dimensionUpdate.widthFt = 24;
+                        if (nextLayout === 'l-shape' || nextLayout === 'u-shape') dimensionUpdate.widthFt = Math.max(28, modelConfig.widthFt);
+                        if (nextLayout === 'expandable-foldout') dimensionUpdate.foldoutState = 'expanded';
+                        onUpdateModel(dimensionUpdate);
+                      }}
                       className={`p-3 rounded-xl border text-left transition-all ${
                         isCurrent
                           ? 'border-[#00f0ff] bg-[#00f0ff]/10 shadow-[0_0_12px_rgba(0,240,255,0.15)]'
@@ -887,6 +908,38 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
                 })}
               </div>
             </div>
+
+            {modelConfig.layoutType === 'expandable-foldout' && (
+              <div className="p-4 rounded-xl bg-amber-950/25 border border-amber-400/40 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-mono font-bold text-amber-300 uppercase">Fold-Out Deployment</div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Inspect the road-ready core or deploy both hinged room wings.</p>
+                  </div>
+                  <span className="text-[9px] font-mono font-bold text-amber-200 border border-amber-400/30 rounded-full px-2 py-1">
+                    {modelConfig.foldoutState === 'transport' ? '8FT TRANSPORT' : '24FT EXPANDED'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'expanded', label: 'Expanded Home', detail: 'Both wings open' },
+                    { id: 'transport', label: 'Transport Mode', detail: 'Wings folded' },
+                  ].map((state) => {
+                    const selected = (modelConfig.foldoutState || 'expanded') === state.id;
+                    return (
+                      <button
+                        key={state.id}
+                        onClick={() => onUpdateModel({ foldoutState: state.id as 'expanded' | 'transport' })}
+                        className={`p-2.5 rounded-lg border text-left transition ${selected ? 'border-amber-300 bg-amber-300/15' : 'border-slate-800 bg-[#080d16] hover:border-slate-700'}`}
+                      >
+                        <div className="text-xs font-bold text-white">{state.label}</div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">{state.detail}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* 2-Story Floor Inspector View Level */}
             {modelConfig.layoutType === 'stacked-2story' && (
@@ -1457,7 +1510,11 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
             {/* Room Dimensions in Feet & Square Footage Summary */}
             {(() => {
               const unitL = modelConfig.lengthFt;
-              const unitW = modelConfig.layoutType === 'double-wide' ? 16 : modelConfig.widthFt;
+              const unitW = modelConfig.layoutType === 'double-wide'
+                ? 16
+                : modelConfig.layoutType === 'expandable-foldout' && modelConfig.foldoutState === 'transport'
+                  ? 8
+                  : modelConfig.widthFt;
               const is20 = unitL <= 24;
               const bedL = is20 ? 7.5 : (unitL >= 36 ? 12.0 : 9.8);
               const bathL = is20 ? 5.5 : 7.5;
@@ -1678,16 +1735,16 @@ export const ConfiguratorControls: React.FC<ConfiguratorControlsProps> = ({
                 </div>
               </div>
 
-              {/* 4. Bedroom Suite Style */}
+              {/* 4. Bedroom / Workspace Style */}
               <div className="p-4 rounded-xl bg-[#0c121e] border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <BedDouble className="w-4 h-4 text-purple-400" />
                     <label className="text-xs font-mono font-bold text-white uppercase">
-                      Bedroom Suite &amp; Accommodations
+                      Bedroom &amp; Workspace Fit-Outs
                     </label>
                   </div>
-                  <span className="text-[10px] font-mono text-purple-400">5 Styles</span>
+                  <span className="text-[10px] font-mono text-purple-400">{ROOM_STYLE_OPTIONS.bedrooms.length} Styles</span>
                 </div>
                 <div className="grid grid-cols-1 gap-1.5">
                   {ROOM_STYLE_OPTIONS.bedrooms.map((opt) => {

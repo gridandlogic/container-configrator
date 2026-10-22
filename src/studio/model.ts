@@ -1,13 +1,13 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { dimensions, StudioConfig, WINDOWS } from "./config";
+import { containerDimensions, StudioConfig, WINDOWS } from "./config";
 import { corrugatedWall, Opening, physicalPlane } from "./geometry";
 import { StudioAssets } from "./assets";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { buildInterior } from "./interior";
 import { windowPosition } from "./layout";
 
-export function buildContainer(config: StudioConfig, assets: StudioAssets) {
+function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeInterior = true) {
   const root = new THREE.Group();
   root.name = "ISO container";
   const {
@@ -16,7 +16,7 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
     height: H,
     base: B,
     floor: F,
-  } = dimensions(config);
+  } = containerDimensions(config);
   const paint = new THREE.MeshStandardMaterial({
     name: "painted-steel",
     color: config.color,
@@ -604,7 +604,7 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
       white,
     );
   }
-  root.add(buildInterior(config.layout, F));
+  if (includeInterior) root.add(buildInterior(config.layout, F));
   // Static fittings and shell sections share one draw call per material.
   root.updateMatrixWorld(true);
   const batches = new Map<THREE.Material, THREE.Mesh[]>();
@@ -673,4 +673,111 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
   });
   root.userData.paint = paint;
   return root;
+}
+
+export function buildContainer(config: StudioConfig, assets: StudioAssets) {
+  if (["standard", "portable-office", "retail-kiosk"].includes(config.buildingType)) {
+    const unit = buildContainerUnit(config, assets);
+    unit.userData.paints = [unit.userData.paint];
+    return unit;
+  }
+
+  const assembly = new THREE.Group();
+  assembly.name = "Architectural container assembly";
+  const moduleWidth = 2.438;
+  const mainLength = config.size === 20 ? 6.058 : 12.192;
+  const moduleHeight = config.highCube ? 2.896 : 2.591;
+  const floorY = 0.32;
+  const paints: THREE.MeshStandardMaterial[] = [];
+  const unitConfig: StudioConfig = { ...config, containers: 1, layout: [] };
+  const addUnit = (
+    size: 20 | 40,
+    x: number,
+    y: number,
+    z: number,
+    rotation = 0,
+  ) => {
+    const unit = buildContainerUnit({ ...unitConfig, size }, assets, false);
+    unit.position.set(x, y, z);
+    unit.rotation.y = rotation;
+    assembly.add(unit);
+    paints.push(unit.userData.paint);
+    return unit;
+  };
+  const steel = new THREE.MeshStandardMaterial({ color: "#343b3d", roughness: 0.45, metalness: 0.72 });
+  const timber = new THREE.MeshStandardMaterial({ color: "#987352", roughness: 0.78, metalness: 0.05 });
+  const amber = new THREE.MeshStandardMaterial({ color: "#c88b32", roughness: 0.4, metalness: 0.7 });
+  const concrete = new THREE.MeshStandardMaterial({ color: "#b6b6aa", roughness: 0.95 });
+  const addBox = (w: number, h: number, d: number, x: number, y: number, z: number, material: THREE.Material, name?: string) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    if (name) mesh.name = name;
+    assembly.add(mesh);
+    return mesh;
+  };
+
+  if (config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u") {
+    const wingLength = 6.058;
+    const backZ = -wingLength / 2;
+    const wingZ = moduleWidth / 2;
+    const wingX = mainLength / 2 - moduleWidth / 2;
+    addUnit(config.size, 0, 0, backZ);
+    addUnit(20, -wingX, 0, wingZ, Math.PI / 2);
+    if (config.buildingType === "courtyard-u") addUnit(20, wingX, 0, wingZ, Math.PI / 2);
+    const courtyardWidth = config.buildingType === "courtyard-u" ? mainLength - moduleWidth * 2 : mainLength - moduleWidth;
+    const deckX = config.buildingType === "courtyard-u" ? 0 : moduleWidth / 2;
+    addBox(courtyardWidth - 0.28, 0.09, wingLength - 0.36, deckX, 0.13, wingZ, timber, "Courtyard deck");
+    const pergolaPosts = config.buildingType === "courtyard-u" ? [-courtyardWidth / 2 + 0.22, courtyardWidth / 2 - 0.22] : [moduleWidth / 2 + 0.2, mainLength / 2 - 0.24];
+    for (const x of pergolaPosts) {
+      for (const z of [-1.45, 3.65]) addBox(0.09, 2.35, 0.09, x, 1.2, z, timber);
+    }
+    for (let i = 0; i < 8; i++) addBox(courtyardWidth - 0.35, 0.07, 0.11, deckX, 2.34, -1.4 + i * 0.72, timber);
+    assembly.add(buildInterior(config.layout, floorY));
+  } else if (config.buildingType === "stacked-office") {
+    addUnit(config.size, 0, 0, 0);
+    addUnit(config.size, mainLength * 0.1, moduleHeight + 0.08, 0);
+    const stairX = -mainLength * 0.26;
+    const stairZ = moduleWidth / 2 + 0.72;
+    const steps = 12;
+    for (let i = 0; i < steps; i++) {
+      const rise = ((i + 1) / steps) * (moduleHeight + 0.08);
+      addBox(1.0, 0.12, 0.3, stairX + (i - steps / 2) * 0.27, rise, stairZ, steel);
+    }
+    for (const side of [-0.46, 0.46]) addBox(0.045, moduleHeight + 0.4, 0.045, stairX + side, moduleHeight / 2 + 0.3, stairZ, steel);
+    addBox(mainLength * 0.34, 0.12, 1.15, mainLength * 0.24, moduleHeight + 0.14, moduleWidth / 2 + 0.58, timber, "Upper office balcony");
+    assembly.add(buildInterior(config.layout, floorY));
+  } else if (config.buildingType === "foldout-home") {
+    addUnit(config.size, 0, 0, 0);
+    if (config.foldoutState === "expanded") {
+      addUnit(config.size, 0, 0, -moduleWidth);
+      addUnit(config.size, 0, 0, moduleWidth);
+      assembly.add(buildInterior(config.layout, floorY));
+      for (const x of [-mainLength / 2 + 0.8, mainLength / 2 - 0.8]) {
+        for (const z of [-moduleWidth * 1.46, moduleWidth * 1.46]) {
+          addBox(0.09, 0.52, 0.09, x, 0.25, z, steel, "Fold-out stabilizer");
+          addBox(0.34, 0.05, 0.34, x, 0.025, z, concrete);
+        }
+      }
+    } else {
+      for (const z of [-moduleWidth / 2 - 0.075, moduleWidth / 2 + 0.075]) {
+        addBox(mainLength - 0.34, moduleHeight - 0.34, 0.085, 0, 0.18 + (moduleHeight - 0.34) / 2, z, steel, "Locked fold-out facade panel");
+        for (const x of [-mainLength * 0.34, 0, mainLength * 0.34]) addBox(0.08, moduleHeight - 0.55, 0.07, x, moduleHeight / 2 + 0.18, z + Math.sign(z) * 0.055, amber);
+      }
+    }
+    for (const seamZ of [-moduleWidth / 2, moduleWidth / 2]) {
+      for (let i = 0; i < 7; i++) {
+        const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.22, 12), amber);
+        hinge.position.set(-mainLength / 2 + 0.75 + i * ((mainLength - 1.5) / 6), 0.21, seamZ);
+        hinge.rotation.z = Math.PI / 2;
+        hinge.castShadow = true;
+        assembly.add(hinge);
+      }
+    }
+  }
+
+  assembly.userData.paint = paints[0];
+  assembly.userData.paints = paints;
+  return assembly;
 }

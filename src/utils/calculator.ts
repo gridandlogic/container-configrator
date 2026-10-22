@@ -24,8 +24,10 @@ export function calculateConfigurationCost(config: ContainerModelConfig): CostBr
     sqFtTotal = config.lengthFt * config.widthFt * 2.1;
   } else if (config.layoutType === 'triple-wide') {
     sqFtTotal = config.lengthFt * config.widthFt;
+  } else if (config.layoutType === 'expandable-foldout') {
+    sqFtTotal = config.lengthFt * (config.foldoutState === 'transport' ? 8 : config.widthFt);
   } else if (config.layoutType === 'u-shape') {
-    sqFtTotal = config.lengthFt * 8 * 2 + (config.widthFt - 16) * 8;
+    sqFtTotal = config.lengthFt * 8 + Math.max(config.widthFt - 8, 0) * 8 * 2;
   } else if (config.layoutType === 'l-shape') {
     sqFtTotal = config.lengthFt * 8 + (config.widthFt - 8) * 8;
   }
@@ -44,6 +46,8 @@ export function calculateConfigurationCost(config: ContainerModelConfig): CostBr
     containerShell = containerShell * 2 + 8200; // Structural I-beam header & column reinforcement
   } else if (config.layoutType === 'triple-wide') {
     containerShell = containerShell * 3 + 14500;
+  } else if (config.layoutType === 'expandable-foldout') {
+    containerShell = containerShell * 3 + 23800; // hinge frames, deployable floors, seals and stabilizers
   } else if (config.layoutType === 'stacked-2story' || config.layoutType === 'cantilever-offset') {
     containerShell = containerShell * 1.9 + 11500; // Structural stacking corners, welding, heavy steel column braces
   } else if (config.layoutType === 'skybridge-compound') {

@@ -8,7 +8,7 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { ArrowDownToLine, Box, LayoutGrid, Move, RotateCcw, RotateCw, Trash2, X } from "lucide-react";
-import { CameraFocus, CameraRequest, dimensions, StudioConfig } from "./config";
+import { BUILDING_LABELS, CameraFocus, CameraRequest, dimensions, layoutDimensions, StudioConfig } from "./config";
 import { catalogItem, entryClearance, LayoutItem, nearestFreePlacement } from "./layout";
 import { disposeTree, StudioAssets } from "./assets";
 import { physicalPlane } from "./geometry";
@@ -305,7 +305,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       const item = current.find((entry) => entry.id === placed.id);
       if (!item) return;
       const configNow = configRef.current;
-      const bounds = dimensions(configNow);
+      const bounds = layoutDimensions(configNow);
       const next = event.type === "pointercancel" ? null : nearestFreePlacement({ ...item, x: placed.x, z: placed.z, onTopOf: undefined }, current, bounds.length, entryClearance(configNow.doorStyle, configNow.doorSide, bounds.length, bounds.width), bounds.width);
       if (!next) {
         activeGroup(item.id)?.position.set(item.x, 0, item.z);
@@ -398,9 +398,8 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
           config[key as keyof StudioConfig] === prev[key as keyof StudioConfig],
       )
     ) {
-      (modelRef.current.userData.paint as THREE.MeshStandardMaterial).color.set(
-        config.color,
-      );
+      const paints = (modelRef.current.userData.paints || [modelRef.current.userData.paint]) as THREE.MeshStandardMaterial[];
+      paints.forEach((paint) => paint?.color.set(config.color));
       invalidateRef.current();
       return;
     }
@@ -474,11 +473,12 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
   }, [request.sequence]);
   useEffect(() => { refreshSelectionRef.current(); }, [selectedId, config.layout]);
   const dim = dimensions(config);
+  const planDim = layoutDimensions(config);
   const selectedItem = config.layout.find((item) => item.id === selectedId);
   const rotateSelected = (direction: -90 | 90) => {
     if (!selectedItem || selectedItem.kind === "bathroom") return;
     const rotation = ((selectedItem.rotation + direction + 360) % 360) as LayoutItem["rotation"];
-    const next = nearestFreePlacement({ ...selectedItem, rotation, onTopOf: undefined }, config.layout, dim.length, entryClearance(config.doorStyle, config.doorSide, dim.length, dim.width), dim.width);
+    const next = nearestFreePlacement({ ...selectedItem, rotation, onTopOf: undefined }, config.layout, planDim.length, entryClearance(config.doorStyle, config.doorSide, planDim.length, planDim.width), planDim.width);
     if (!next) {
       setEditNotice("Move this item into clear space before rotating it.");
       return;
@@ -501,7 +501,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       <div className="studio-viewer-label">
         <span>YOUR CONTAINER / LIVE PREVIEW</span>
         <strong>
-          {config.containers === 2 ? "2 × " : ""}{config.size}′ {config.highCube ? "High cube" : "Standard"}
+          {BUILDING_LABELS[config.buildingType]}{config.buildingType === "foldout-home" ? ` · ${config.foldoutState === "expanded" ? "Expanded" : "Transport"}` : ""}
         </strong>
         <small>
           {dim.length.toFixed(2)} × {dim.width.toFixed(2)} ×{" "}

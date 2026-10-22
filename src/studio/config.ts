@@ -1,6 +1,23 @@
 import { LayoutItem, presetLayout } from "./layout";
 
 export type Side = "left" | "right";
+export type BuildingType =
+  | "standard"
+  | "portable-office"
+  | "retail-kiosk"
+  | "courtyard-l"
+  | "courtyard-u"
+  | "stacked-office"
+  | "foldout-home";
+export const BUILDING_LABELS: Record<BuildingType, string> = {
+  standard: "Classic container",
+  "portable-office": "Portable office",
+  "retail-kiosk": "Portable service kiosk",
+  "courtyard-l": "L-courtyard home",
+  "courtyard-u": "U-courtyard home",
+  "stacked-office": "Stacked portable office",
+  "foldout-home": "Fold-out container home",
+};
 export type WindowStyle =
   | "none"
   | "small"
@@ -52,6 +69,8 @@ export type CameraFocus =
 export interface StudioConfig {
   size: 20 | 40;
   containers: 1 | 2;
+  buildingType: BuildingType;
+  foldoutState: "expanded" | "transport";
   highCube: boolean;
   color: string;
   windowStyle: WindowStyle;
@@ -74,6 +93,8 @@ export interface StudioConfig {
 export const DEFAULT_CONFIG: StudioConfig = {
   size: 40,
   containers: 1,
+  buildingType: "standard",
+  foldoutState: "expanded",
   highCube: true,
   color: "#373d42",
   windowStyle: "medium",
@@ -172,7 +193,7 @@ export const FLOORS: { id: FloorFinish; name: string; note: string }[] = [
     note: "Subtle patina & character",
   },
 ];
-export function dimensions(config: StudioConfig) {
+export function containerDimensions(config: StudioConfig) {
   return {
     length: config.size === 20 ? 6.058 : 12.192,
     width: 2.438 * config.containers,
@@ -180,6 +201,30 @@ export function dimensions(config: StudioConfig) {
     base: 0.18,
     floor: 0.32,
   };
+}
+export function dimensions(config: StudioConfig) {
+  const base = containerDimensions(config);
+  if (config.buildingType === "foldout-home") {
+    return {
+      ...base,
+      width: config.foldoutState === "transport" ? 2.438 : 7.314,
+    };
+  }
+  if (config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u") {
+    return {
+      ...base,
+      width: 2.438 + Math.min(base.length, 6.058),
+    };
+  }
+  if (config.buildingType === "stacked-office") {
+    return { ...base, height: base.height * 2 + 0.08 };
+  }
+  return base;
+}
+export function layoutDimensions(config: StudioConfig) {
+  return config.buildingType === "foldout-home"
+    ? dimensions({ ...config, foldoutState: "expanded" })
+    : dimensions(config);
 }
 export function configReducer(
   config: StudioConfig,

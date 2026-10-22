@@ -1,11 +1,11 @@
 import { Plus, Trash2 } from "lucide-react";
-import { ITEM_CATALOG, LayoutItem, ItemKind, catalogItem } from "./layout";
+import { ITEM_CATALOG, LayoutItem, ItemKind, LayoutPreset, catalogItem } from "./layout";
 
 interface Props {
   layout: LayoutItem[];
   selectedId: string | null;
   notice: string;
-  onPreset: (preset: "studio" | "work" | "stay" | "empty") => void;
+  onPreset: (preset: LayoutPreset) => void;
   onAdd: (kind: ItemKind) => void;
   onSelect: (id: string) => void;
   onRemove: (id: string) => void;
@@ -13,13 +13,19 @@ interface Props {
 
 export default function LayoutControls({ layout, selectedId, notice, onPreset, onAdd, onSelect, onRemove }: Props) {
   const presets = [
+    ["focus-office", "Portable focus office", "20 ft · desk, lounge and powder room"],
+    ["team-office", "Team meeting office", "40 ft · meeting table and workstations"],
+    ["coffee-kiosk", "Coffee kiosk", "20 ft · service counter and customer perch"],
+    ["courtyard-home", "U-courtyard home", "3 modules · two bedroom family layout"],
+    ["l-courtyard-home", "L-courtyard home", "2 modules · sheltered outdoor edge"],
+    ["stacked-office", "Stacked office", "2 storeys · client and team zones"],
+    ["foldout-home", "Fold-out family home", "8 ft transport · 24 ft deployed width"],
     ["studio", "Open studio", "Seating, kitchen and bathroom"],
-    ["work", "Work office", "Desk, meeting area and bathroom"],
     ["stay", "Weekend stay", "Bed, kitchenette and bathroom"],
     ["empty", "Empty shell", "Start from the clear floor"],
   ] as const;
   return <div className="layout-controls">
-    <p className="studio-label">Start with a practical layout</p>
+    <p className="studio-label">Reference-inspired spaces</p>
     <div className="layout-presets">{presets.map(([id, name, description]) => <button key={id} type="button" onClick={() => onPreset(id)}><strong>{name}</strong><small>{description}</small></button>)}</div>
     <p className="studio-label">Add to the floor plan</p>
     <div className="layout-catalog">{ITEM_CATALOG.map(({ kind, label, width, depth, group }) => <button key={kind} type="button" onClick={() => onAdd(kind)}><span><strong>{label}</strong><small>{group} · {width.toFixed(2)} × {depth.toFixed(2)} m</small></span><Plus size={15}/></button>)}</div>

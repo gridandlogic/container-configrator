@@ -1,6 +1,6 @@
 import { useRef, useState, type PointerEvent } from "react";
 import { ArrowDownToLine, Box, RotateCw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
-import { dimensions, StudioConfig, WINDOWS } from "./config";
+import { BUILDING_LABELS, layoutDimensions, StudioConfig, WINDOWS } from "./config";
 import { blocksEntry, catalogItem, entryClearance, footprint, LayoutItem, nearestFreePlacement, resolvePlacement, snap, windowPosition } from "./layout";
 
 interface Props {
@@ -26,7 +26,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
   const [dragPreview, setDragPreview] = useState<{ id: string; x: number; z: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [notice, setNotice] = useState("Drag an item to reposition it. Select one for more options.");
-  const { length: L, width: W } = dimensions(config);
+  const { length: L, width: W } = layoutDimensions(config);
   const entry = entryClearance(config.doorStyle, config.doorSide, L, W);
   const blockedEntry = entry && config.layout.some((item) => blocksEntry(item, L, entry));
   const viewWidth = (L + 1.52) * scale;
@@ -136,7 +136,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
           <defs><pattern id="plan-grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#e4e9e4" strokeWidth="1"/></pattern></defs>
           <rect width={viewWidth} height={viewHeight} fill="#ffffff"/>
           <text x={insetX} y="35" fontFamily="Arial" fontSize="18" fontWeight="700" fill="#151515">CONTAINER FLOOR PLAN</text>
-          <text x={insetX} y="55" fontFamily="Arial" fontSize="10" letterSpacing="1.4" fill="#5a5a5a">{config.containers === 2 ? "DOUBLE / " : ""}{config.size} FT {config.highCube ? "HIGH CUBE" : "STANDARD"}  /  {config.layout.length} PLACED ITEMS</text>
+          <text x={insetX} y="55" fontFamily="Arial" fontSize="10" letterSpacing="1.4" fill="#5a5a5a">{BUILDING_LABELS[config.buildingType].toUpperCase()}  /  {config.layout.length} PLACED ITEMS</text>
           <line x1={insetX} x2={viewWidth - insetX} y1="69" y2="69" stroke="#1b1b1b" strokeWidth="1"/>
           <line x1={insetX} x2={insetX + L * scale} y1={insetY - 30} y2={insetY - 30} stroke="#708176" strokeWidth="1"/>
           <path d={`M ${insetX} ${insetY - 38} v 16 M ${insetX + L * scale} ${insetY - 38} v 16`} stroke="#708176"/>
@@ -144,8 +144,22 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
           <line x1={insetX - 30} x2={insetX - 30} y1={insetY} y2={insetY + W * scale} stroke="#708176" strokeWidth="1"/>
           <path d={`M ${insetX - 38} ${insetY} h 16 M ${insetX - 38} ${insetY + W * scale} h 16`} stroke="#708176"/>
           <text x={insetX - 40} y={insetY + W * scale / 2} textAnchor="middle" transform={`rotate(-90 ${insetX - 40} ${insetY + W * scale / 2})`} fontSize="12" fill="#26382b" fontFamily="Arial">{W.toFixed(2)} m</text>
-          <rect x={insetX} y={insetY} width={L * scale} height={W * scale} fill="white" stroke="#1d2921" strokeWidth="6"/>
-          <rect x={insetX + 3} y={insetY + 3} width={L * scale - 6} height={W * scale - 6} fill="url(#plan-grid)"/>
+          {config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u" ? <g>
+            <rect x={insetX} y={insetY} width={L * scale} height={2.438 * scale} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>
+            <rect x={insetX} y={insetY + 2.438 * scale - 3} width={2.438 * scale} height={(W - 2.438) * scale + 3} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>
+            {config.buildingType === "courtyard-u" && <rect x={insetX + (L - 2.438) * scale} y={insetY + 2.438 * scale - 3} width={2.438 * scale} height={(W - 2.438) * scale + 3} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>}
+            <text x={insetX + L * scale / 2} y={insetY + (W + 2.438) * scale / 2} textAnchor="middle" fontFamily="Arial" fontSize="12" fill="#758277" letterSpacing="1.2">OPEN COURTYARD</text>
+          </g> : <g>
+            <rect x={insetX} y={insetY} width={L * scale} height={W * scale} fill="white" stroke="#1d2921" strokeWidth="6"/>
+            <rect x={insetX + 3} y={insetY + 3} width={L * scale - 6} height={W * scale - 6} fill="url(#plan-grid)"/>
+            {config.buildingType === "foldout-home" && <>
+              <line x1={insetX + 4} x2={insetX + L * scale - 4} y1={py(-1.219)} y2={py(-1.219)} stroke="#b07a32" strokeWidth="2" strokeDasharray="10 6"/>
+              <line x1={insetX + 4} x2={insetX + L * scale - 4} y1={py(1.219)} y2={py(1.219)} stroke="#b07a32" strokeWidth="2" strokeDasharray="10 6"/>
+              <text x={insetX + 12} y={py(-1.219) - 8} fontFamily="Arial" fontSize="9" fill="#95651f">FOLD-OUT HINGE LINE</text>
+              {config.foldoutState === "transport" && <rect x={insetX + 5} y={py(-1.219)} width={L * scale - 10} height={2.438 * scale} fill="none" stroke="#b07a32" strokeWidth="4"/>}
+            </>}
+            {config.buildingType === "stacked-office" && <text x={insetX + 14} y={insetY + 22} fontFamily="Arial" fontSize="10" fill="#5c6d60">GROUND FLOOR · UPPER MODULE ABOVE</text>}
+          </g>}
           {config.containers === 2 && <g pointerEvents="none"><line x1={insetX + 4} x2={insetX + L * scale - 4} y1={py(0)} y2={py(0)} stroke="#9da99e" strokeWidth="2" strokeDasharray="12 8"/><text x={insetX + 15} y={py(0) - 10} fontFamily="Arial" fontSize="9" fill="#68786a">JOINED CONTAINERS / OPEN CONNECTION</text></g>}
           {entry && <g pointerEvents="none"><rect x={px(doorX - doorW / 2 - 0.05)} y={py(entry.side === "left" ? W / 2 - 0.76 : -W / 2)} width={(doorW + 0.1) * scale} height="76" fill="#eaf3e9" fillOpacity=".75" stroke="#9db99f" strokeDasharray="5 4"/><text x={px(doorX)} y={py(entry.side === "left" ? W / 2 - 0.38 : -W / 2 + 0.38)} textAnchor="middle" fontFamily="Arial" fontSize="9" fill="#67816a">KEEP CLEAR</text></g>}
           {config.windowStyle !== "none" && (config.windowSide === "left" || config.windowSide === "both") && <g><line x1={px(windowX - windowW / 2)} x2={px(windowX + windowW / 2)} y1={py(W / 2)} y2={py(W / 2)} stroke="white" strokeWidth="9"/><line x1={px(windowX - windowW / 2)} x2={px(windowX + windowW / 2)} y1={py(W / 2)} y2={py(W / 2)} stroke="#8dbac1" strokeWidth="5"/></g>}
@@ -175,7 +189,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
           <path d={`M ${insetX + 4} ${viewHeight - 31} v 12 M ${insetX + 104} ${viewHeight - 31} v 12`} stroke="#304c38"/>
           <text x={insetX + 54} y={viewHeight - 32} textAnchor="middle" fontFamily="Arial" fontSize="10" fill="#304c38">1 m</text>
           <line x1={insetX} x2={viewWidth - insetX} y1={viewHeight - 84} y2={viewHeight - 84} stroke="#b9bfb9"/>
-          <text x={viewWidth - insetX} y={viewHeight - 57} textAnchor="end" fontFamily="Arial" fontSize="10" fontWeight="700" fill="#242a24">{config.containers === 2 ? "2 × " : ""}{config.size}′ CONTAINER · {L.toFixed(2)} × {W.toFixed(2)} m</text>
+          <text x={viewWidth - insetX} y={viewHeight - 57} textAnchor="end" fontFamily="Arial" fontSize="10" fontWeight="700" fill="#242a24">{BUILDING_LABELS[config.buildingType].toUpperCase()} · {L.toFixed(2)} × {W.toFixed(2)} m</text>
           <text x={viewWidth - insetX} y={viewHeight - 38} textAnchor="end" fontFamily="Arial" fontSize="9" fill="#737b73">SPACE PLANNER / TOP VIEW</text>
         </svg>
       </div>

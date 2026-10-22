@@ -54,6 +54,9 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
 
   const pierHeightFt = pierHeightInches / 12;
   const baseElevation = pierHeightFt;
+  const structuralFootprintWidth = layoutType === 'expandable-foldout' && modelConfig.foldoutState === 'transport'
+    ? 8
+    : widthFt;
 
   // -------------------------------------------------------------
   // 1. FOUNDATION SYSTEM
@@ -66,18 +69,18 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
 
   if (foundationType === 'concrete-piers' || foundationType === 'helical-piles') {
     const pierPositions = [
-      [-lengthFt / 2 + 1, -widthFt / 2 + 1],
-      [-lengthFt / 2 + 1, widthFt / 2 - 1],
-      [lengthFt / 2 - 1, -widthFt / 2 + 1],
-      [lengthFt / 2 - 1, widthFt / 2 - 1],
-      [0, -widthFt / 2 + 1],
-      [0, widthFt / 2 - 1],
+      [-lengthFt / 2 + 1, -structuralFootprintWidth / 2 + 1],
+      [-lengthFt / 2 + 1, structuralFootprintWidth / 2 - 1],
+      [lengthFt / 2 - 1, -structuralFootprintWidth / 2 + 1],
+      [lengthFt / 2 - 1, structuralFootprintWidth / 2 - 1],
+      [0, -structuralFootprintWidth / 2 + 1],
+      [0, structuralFootprintWidth / 2 - 1],
     ];
     if (lengthFt > 30) {
-      pierPositions.push([-lengthFt / 4, -widthFt / 2 + 1]);
-      pierPositions.push([-lengthFt / 4, widthFt / 2 - 1]);
-      pierPositions.push([lengthFt / 4, -widthFt / 2 + 1]);
-      pierPositions.push([lengthFt / 4, widthFt / 2 - 1]);
+      pierPositions.push([-lengthFt / 4, -structuralFootprintWidth / 2 + 1]);
+      pierPositions.push([-lengthFt / 4, structuralFootprintWidth / 2 - 1]);
+      pierPositions.push([lengthFt / 4, -structuralFootprintWidth / 2 + 1]);
+      pierPositions.push([lengthFt / 4, structuralFootprintWidth / 2 - 1]);
     }
 
     pierPositions.forEach(([px, pz]) => {
@@ -92,7 +95,7 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
       houseGroup.add(pierMesh);
     });
   } else if (foundationType === 'concrete-slab') {
-    const slabGeo = new THREE.BoxGeometry(lengthFt + 2, pierHeightFt, widthFt + 2);
+    const slabGeo = new THREE.BoxGeometry(lengthFt + 2, pierHeightFt, structuralFootprintWidth + 2);
     const slabMesh = new THREE.Mesh(slabGeo, foundationMat);
     slabMesh.position.set(0, pierHeightFt / 2, 0);
     slabMesh.receiveShadow = true;
@@ -103,7 +106,7 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
   // -------------------------------------------------------------
   // 2. TIMBER DECK / PORCH & GROUND ACCESS
   // -------------------------------------------------------------
-  if (deckPorch) {
+  if (deckPorch && !(layoutType === 'expandable-foldout' && modelConfig.foldoutState === 'transport')) {
     const deckMat = new THREE.MeshStandardMaterial({
       color: 0x9a7b56, // Premium Cedar / Teak composite
       roughness: 0.7,
@@ -226,7 +229,12 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
     posOffset: THREE.Vector3,
     isUpperStory: boolean = false,
     floorType: 'single' | 'ground' | 'upper' = 'single',
-    options?: { skipInterior?: boolean; skipEnvelope?: boolean; skipWallSide?: 'front' | 'back' }
+    options?: {
+      skipInterior?: boolean;
+      skipEnvelope?: boolean;
+      skipWallSide?: 'front' | 'back';
+      skipWallSides?: Array<'front' | 'back'>;
+    }
   ) => {
     const unitGroup = new THREE.Group();
     unitGroup.position.copy(posOffset);
@@ -473,7 +481,10 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
     };
 
     // Build front and rear continuous walls with clean cutouts
-    if (options?.skipWallSide !== 'front') {
+    const shouldSkipWallSide = (side: 'front' | 'back') =>
+      options?.skipWallSide === side || options?.skipWallSides?.includes(side);
+
+    if (!shouldSkipWallSide('front')) {
       const frontWall = buildContinuousContainerWall(unitW / 2 - 0.12, frontCutouts, true);
       unitGroup.add(frontWall);
 
@@ -505,7 +516,7 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
       }
     }
 
-    if (options?.skipWallSide !== 'back') {
+    if (!shouldSkipWallSide('back')) {
       const backWall = buildContinuousContainerWall(-unitW / 2 + 0.12, backCutouts, false);
       unitGroup.add(backWall);
 
@@ -908,30 +919,154 @@ export function buildCompleteContainerHouse(modelConfig: ContainerModelConfig): 
     );
     houseGroup.add(groundBox);
     houseGroup.add(upperBox);
+  } else if (layoutType === 'expandable-foldout') {
+    const bayW = Math.max(7.5, Math.min(8, widthFt / 3));
+    const isExpanded = modelConfig.foldoutState !== 'transport';
+    const hingeMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.88, roughness: 0.28 });
+    const sealMat = new THREE.MeshStandardMaterial({ color: 0x111827, metalness: 0.25, roughness: 0.72 });
+
+    if (isExpanded) {
+      const core = buildContainerUnit(
+        lengthFt,
+        bayW,
+        heightFt,
+        new THREE.Vector3(0, baseElevation, 0),
+        false,
+        'single',
+        { skipInterior: true, skipEnvelope: true, skipWallSides: ['front', 'back'] }
+      );
+      const rearWing = buildContainerUnit(
+        lengthFt,
+        bayW,
+        heightFt,
+        new THREE.Vector3(0, baseElevation, -bayW),
+        false,
+        'single',
+        { skipInterior: true, skipEnvelope: true, skipWallSide: 'front' }
+      );
+      const frontWing = buildContainerUnit(
+        lengthFt,
+        bayW,
+        heightFt,
+        new THREE.Vector3(0, baseElevation, bayW),
+        false,
+        'single',
+        { skipInterior: true, skipEnvelope: true, skipWallSide: 'back' }
+      );
+      houseGroup.add(core, rearWing, frontWing);
+
+      const expandedInterior = buildLogicalHouseInterior(
+        lengthFt,
+        bayW * 3,
+        heightFt,
+        interiorStyle,
+        modelConfig.flooringMaterial,
+        'single',
+        modelConfig
+      );
+      expandedInterior.position.set(0, baseElevation, 0);
+      houseGroup.add(expandedInterior);
+
+      const expandedEnvelope = buildArchitecturalHouseEnvelope(
+        lengthFt,
+        bayW * 3,
+        heightFt,
+        modelConfig.exteriorMaterial,
+        exteriorColor,
+        !!cutawayRoof,
+        roofOption,
+        solarPanelsCount,
+        !!modelConfig.frontDoorOpen,
+        false
+      );
+      expandedEnvelope.position.set(0, baseElevation, 0);
+      houseGroup.add(expandedEnvelope);
+
+      // Full-length hinge barrels, compression seals and stabilizer legs make
+      // the fold-out system legible in both exterior and cutaway views.
+      [-bayW / 2, bayW / 2].forEach((seamZ) => {
+        [0.4, heightFt - 0.45].forEach((hingeY) => {
+          const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, lengthFt - 1.2, 14), hingeMat);
+          hinge.rotation.z = Math.PI / 2;
+          hinge.position.set(0, baseElevation + hingeY, seamZ);
+          hinge.castShadow = true;
+          houseGroup.add(hinge);
+        });
+        const weatherSeal = new THREE.Mesh(new THREE.BoxGeometry(lengthFt - 1.4, heightFt - 1.2, 0.12), sealMat);
+        weatherSeal.position.set(0, baseElevation + heightFt / 2, seamZ);
+        houseGroup.add(weatherSeal);
+      });
+
+      const legHeight = Math.max(baseElevation, 0.8);
+      [-lengthFt / 2 + 1.2, lengthFt / 2 - 1.2].forEach((legX) => {
+        [-bayW * 1.5 + 0.8, bayW * 1.5 - 0.8].forEach((legZ) => {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.28, legHeight, 0.28), sealMat);
+          leg.position.set(legX, legHeight / 2, legZ);
+          leg.castShadow = true;
+          houseGroup.add(leg);
+          const foot = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.12, 1.1), hingeMat);
+          foot.position.set(legX, 0.06, legZ);
+          houseGroup.add(foot);
+        });
+      });
+    } else {
+      const transportCore = buildContainerUnit(
+        lengthFt,
+        bayW,
+        heightFt,
+        new THREE.Vector3(0, baseElevation, 0),
+        false,
+        'single'
+      );
+      houseGroup.add(transportCore);
+
+      // In road mode the two room wings become locked facade panels.
+      [-1, 1].forEach((side) => {
+        const foldedPanel = new THREE.Mesh(
+          new THREE.BoxGeometry(lengthFt - 1.0, heightFt - 1.0, 0.32),
+          new THREE.MeshStandardMaterial({ color: exteriorColor, metalness: 0.55, roughness: 0.5 })
+        );
+        foldedPanel.position.set(0, baseElevation + heightFt / 2, side * (bayW / 2 + 0.28));
+        foldedPanel.castShadow = true;
+        houseGroup.add(foldedPanel);
+
+        const lockingRail = new THREE.Mesh(new THREE.BoxGeometry(lengthFt - 1.2, 0.3, 0.5), hingeMat);
+        lockingRail.position.set(0, baseElevation + heightFt - 0.7, side * (bayW / 2 + 0.45));
+        houseGroup.add(lockingRail);
+      });
+    }
   } else if (layoutType === 'u-shape') {
-    const mainBox = buildContainerUnit(lengthFt * 0.7, widthFt, heightFt, new THREE.Vector3(0, baseElevation, -lengthFt * 0.2), false, 'single');
-    const wing1 = buildContainerUnit(lengthFt * 0.5, widthFt, heightFt, new THREE.Vector3(-lengthFt * 0.35 + widthFt / 2, baseElevation, 0), false, 'single');
+    const moduleW = Math.min(8, widthFt);
+    const wingLength = Math.max(16, widthFt - moduleW);
+    const rearZ = -wingLength / 2 + moduleW / 2;
+    const sideX = lengthFt / 2 - moduleW / 2;
+    const mainBox = buildContainerUnit(lengthFt, moduleW, heightFt, new THREE.Vector3(0, baseElevation, rearZ), false, 'single');
+    const wing1 = buildContainerUnit(wingLength, moduleW, heightFt, new THREE.Vector3(-sideX, baseElevation, 0), false, 'single');
     wing1.rotation.y = Math.PI / 2;
-    const wing2 = buildContainerUnit(lengthFt * 0.5, widthFt, heightFt, new THREE.Vector3(lengthFt * 0.35 - widthFt / 2, baseElevation, 0), false, 'single');
+    const wing2 = buildContainerUnit(wingLength, moduleW, heightFt, new THREE.Vector3(sideX, baseElevation, 0), false, 'single');
     wing2.rotation.y = Math.PI / 2;
     houseGroup.add(mainBox);
     houseGroup.add(wing1);
     houseGroup.add(wing2);
   } else if (layoutType === 'l-shape') {
-    const box1 = buildContainerUnit(lengthFt * 0.6, widthFt, heightFt, new THREE.Vector3(-lengthFt * 0.2, baseElevation, 0), false, 'single');
-    const box2 = buildContainerUnit(lengthFt * 0.6, widthFt, heightFt, new THREE.Vector3(lengthFt * 0.15, baseElevation, lengthFt * 0.25), false, 'single');
+    const moduleW = Math.min(8, widthFt);
+    const wingLength = Math.max(16, widthFt - moduleW);
+    const rearZ = -wingLength / 2 + moduleW / 2;
+    const sideX = -lengthFt / 2 + moduleW / 2;
+    const box1 = buildContainerUnit(lengthFt, moduleW, heightFt, new THREE.Vector3(0, baseElevation, rearZ), false, 'single');
+    const box2 = buildContainerUnit(wingLength, moduleW, heightFt, new THREE.Vector3(sideX, baseElevation, 0), false, 'single');
     box2.rotation.y = Math.PI / 2;
     houseGroup.add(box1);
     houseGroup.add(box2);
   }
 
   // Soft Ambient Occlusion Contact Shadow underneath the building footprint to ground model
-  const contactShadow = createContactShadowPlane(widthFt, lengthFt);
+  const contactShadow = createContactShadowPlane(structuralFootprintWidth, lengthFt);
   contactShadow.position.set(0, baseElevation + 0.02, 0);
   houseGroup.add(contactShadow);
 
   // Realistic Exterior HVAC Inverter Mini-Split Unit on rear wall
-  const hvacUnit = createExteriorHvacUnit(-lengthFt / 2 + 5.0, -widthFt / 2 - 1.0);
+  const hvacUnit = createExteriorHvacUnit(-lengthFt / 2 + 5.0, -structuralFootprintWidth / 2 - 1.0);
   houseGroup.add(hvacUnit);
 
   return houseGroup;

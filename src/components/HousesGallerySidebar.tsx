@@ -144,6 +144,16 @@ export const HousesGallerySidebar: React.FC<HousesGallerySidebarProps> = ({
                       2-STORY TOWER
                     </span>
                   )}
+                  {preset.spaceUse && preset.spaceUse !== 'home' && (
+                    <span className="px-2 py-0.5 rounded-md bg-blue-950/60 border border-blue-500/40 text-blue-300 uppercase">
+                      {preset.spaceUse}
+                    </span>
+                  )}
+                  {preset.layoutType === 'expandable-foldout' && (
+                    <span className="px-2 py-0.5 rounded-md bg-amber-950/60 border border-amber-400/40 text-amber-300">
+                      FOLD-OUT SYSTEM
+                    </span>
+                  )}
                   {preset.deckPorch && (
                     <span className="px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-500/40 text-emerald-300">
                       TERRACE DECK

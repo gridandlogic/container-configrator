@@ -61,16 +61,29 @@ function generateProceduralArchitectHouse(prompt: string, currentConfig?: any) {
     p.includes('cantilever') ||
     p.includes('villa');
   const isLshape = p.includes('l-shape') || p.includes('l shape') || p.includes('courtyard');
+  const isUshape = p.includes('u-shape') || p.includes('u shape') || p.includes('u-shaped');
+  const isFoldout =
+    p.includes('foldable') ||
+    p.includes('fold-out') ||
+    p.includes('fold out') ||
+    p.includes('expandable') ||
+    p.includes('transformer home');
+  const isOffice = p.includes('office') || p.includes('workspace') || p.includes('meeting') || p.includes('cowork');
+  const isRetail = p.includes('kiosk') || p.includes('cafe') || p.includes('coffee shop') || p.includes('retail');
   const isDoubleWide = p.includes('double') || p.includes('wide') || p.includes('compound');
   const is45ft = p.includes('45') || p.includes('extended') || p.includes('estate');
   const is20ft = p.includes('20') || p.includes('compact') || p.includes('tiny') || p.includes('studio') || p.includes('cabin');
 
   const lengthFt = is20ft ? 20 : is45ft ? 45 : 40;
-  const widthFt = isDoubleWide ? 16 : is2Story ? 8 : lengthFt >= 40 ? 16 : 8;
+  const widthFt = isFoldout ? 24 : isUshape || isLshape ? 28 : isDoubleWide ? 16 : is2Story ? 8 : lengthFt >= 40 ? 16 : 8;
 
   let layoutType = 'single';
-  if (is2Story) {
+  if (isFoldout) {
+    layoutType = 'expandable-foldout';
+  } else if (is2Story) {
     layoutType = p.includes('cantilever') ? 'cantilever-offset' : 'stacked-2story';
+  } else if (isUshape) {
+    layoutType = 'u-shape';
   } else if (isLshape) {
     layoutType = 'l-shape';
   } else if (widthFt >= 16) {
@@ -115,10 +128,10 @@ function generateProceduralArchitectHouse(prompt: string, currentConfig?: any) {
   // 4. Room partitions tailored to length & prompt
   const partitions: any[] = [];
   if (lengthFt === 20) {
-    if (p.includes('office') || p.includes('studio')) {
+    if (isOffice || isRetail) {
       partitions.push(
-        { id: 'room-1', name: 'Executive Workstudio', roomType: 'office', positionFt: 7, furnishings: true },
-        { id: 'room-2', name: 'Powder & Wet Bar', roomType: 'bathroom', positionFt: 14, furnishings: true }
+        { id: 'room-1', name: isRetail ? 'Service Counter & Display' : 'Executive Workstudio', roomType: isRetail ? 'kitchen' : 'office', positionFt: 7, furnishings: true },
+        { id: 'room-2', name: isRetail ? 'Prep & Utility Core' : 'Powder & Wet Bar', roomType: 'bathroom', positionFt: 14, furnishings: true }
       );
     } else {
       partitions.push(
@@ -128,7 +141,7 @@ function generateProceduralArchitectHouse(prompt: string, currentConfig?: any) {
     }
   } else if (lengthFt === 40 || lengthFt === 45) {
     const hasChefKitchen = p.includes('kitchen') || p.includes('cook') || p.includes('chef');
-    const hasOffice = p.includes('office') || p.includes('work') || p.includes('desk') || p.includes('studio');
+    const hasOffice = isOffice || p.includes('work') || p.includes('desk') || p.includes('studio');
 
     partitions.push(
       { id: 'room-1', name: 'Master Sanctuary', roomType: 'bedroom', positionFt: 8, furnishings: true },
@@ -189,7 +202,12 @@ function generateProceduralArchitectHouse(prompt: string, currentConfig?: any) {
 
   // 6. Project Title & Rationale
   let estateName = 'Horizon Architectural Container Residence';
-  if (is2Story) estateName = 'Solace Stacked Bi-Level Villa';
+  if (isFoldout) estateName = 'Nomad Expandable Fold-Out House';
+  else if (isOffice && p.includes('meeting')) estateName = 'Forum Portable Meeting Studio';
+  else if (isOffice) estateName = 'Atelier Portable Work Cabin';
+  else if (isRetail) estateName = 'Streetline Portable Service Kiosk';
+  else if (isUshape) estateName = 'Haven U-Courtyard Container Home';
+  else if (is2Story) estateName = 'Solace Stacked Bi-Level Villa';
   else if (is20ft) estateName = 'Komorebi Compact Sanctuary';
   else if (p.includes('nordic')) estateName = 'Fjord Nordic Off-Grid Haven';
   else if (p.includes('desert') || p.includes('corten')) estateName = 'Mirage High-Desert Retreat';
@@ -202,6 +220,8 @@ function generateProceduralArchitectHouse(prompt: string, currentConfig?: any) {
     widthFt,
     heightFt: 9.5,
     layoutType,
+    spaceUse: isOffice ? 'office' : isRetail ? 'retail' : 'home',
+    foldoutState: isFoldout ? 'expanded' : undefined,
     exteriorMaterial,
     exteriorColor,
     colorName,
@@ -212,6 +232,8 @@ function generateProceduralArchitectHouse(prompt: string, currentConfig?: any) {
     staircase: is2Story || hasRoofDeck,
     interiorStyle: p.includes('concrete') ? 'industrial-concrete' : p.includes('nordic') ? 'nordic-white' : 'minimalist-oak',
     flooringMaterial: p.includes('terrazzo') ? 'white-terrazzo' : p.includes('concrete') ? 'polished-concrete' : 'chevron-oak',
+    bedroomType: isOffice ? (p.includes('meeting') || p.includes('conference') ? 'meeting-suite' : 'portable-office') : 'master-suite',
+    bathroomType: p.includes('wetroom') || p.includes('wet room') ? 'nordic-wetroom' : p.includes('spa') ? 'luxury-spa' : 'modern-ensuite',
     cutawayRoof: true,
     insulationRValue: 25,
     foundationType: 'concrete-piers',
@@ -233,7 +255,7 @@ function generateProceduralArchitectHouse(prompt: string, currentConfig?: any) {
       'interior-bed-door': false,
     },
     interiorDoorsOpen: false,
-    architectRationale: `[Structural Logic] Engineered on an authentic ${lengthFt}ft ISO container frame with continuous load-bearing corner castings. [Interior Zoning] Logical wet-wall grouping for kitchen and bath, isolated from quiet living/sleeping zones via sliding pocket doors. Central corridor ensures direct, independent access to bedrooms and washrooms without walking through other rooms. [Apertures] High-performance sliding glass patio doors and cross-ventilation sliding windows placed between ribs. [Clean Design] Strictly eliminated extraneous clutter and unsolicited features for pure, functional architectural elegance.`,
+    architectRationale: `[Structural Logic] Engineered on an authentic ${lengthFt}ft ISO container frame with continuous load-bearing corner castings${isFoldout ? ' and hinged fold-out side wings that expand from an 8ft transport envelope to a 24ft living width' : ''}. [Interior Zoning] Logical wet-wall grouping for kitchen and bath, isolated from quiet living, sleeping, or working zones via sliding pocket doors. Central circulation ensures direct, independent access to bedrooms, washrooms, and workspaces. [Apertures] High-performance sliding glass patio doors and cross-ventilation sliding windows placed between ribs. [Clean Design] A focused architectural kit shaped to the requested use.`,
   };
 }
 
@@ -259,9 +281,11 @@ You must output ONLY valid JSON matching this exact structure without markdown o
   "subtitle": "Short 1-line luxury architectural subtitle",
   "luxuryTier": "Ultra-Luxury | Executive Elite | Pure Minimalist",
   "lengthFt": 20 | 40 | 45,
-  "widthFt": 8 | 16 | 24,
+  "widthFt": 8 | 16 | 24 | 28,
   "heightFt": 9.5,
-  "layoutType": "single" | "double-wide" | "triple-wide" | "l-shape" | "stacked-2story" | "cantilever-offset" | "skybridge-compound",
+  "layoutType": "single" | "double-wide" | "triple-wide" | "l-shape" | "u-shape" | "stacked-2story" | "cantilever-offset" | "skybridge-compound" | "expandable-foldout",
+  "spaceUse": "home" | "office" | "retail" | "hospitality",
+  "foldoutState": "expanded" | "transport" (only include for expandable-foldout),
   "exteriorMaterial": "shou-sugi-ban" | "corten-steel" | "swiss-larch" | "obsidian-composite" | "concrete-panels" | "alpine-white-stucco",
   "exteriorColor": "#hexcode",
   "colorName": "Descriptive color name",
@@ -272,6 +296,8 @@ You must output ONLY valid JSON matching this exact structure without markdown o
   "staircase": boolean,
   "interiorStyle": "minimalist-oak" | "industrial-concrete" | "nordic-white" | "dark-loft",
   "flooringMaterial": "chevron-oak" | "polished-concrete" | "smoked-walnut" | "dark-slate" | "white-terrazzo",
+  "bedroomType": "master-suite" | "japandi-platform" | "executive-study" | "desk-study" | "portable-office" | "meeting-suite" | "dual-bunk" | "nordic-minimal",
+  "bathroomType": "luxury-spa" | "modern-ensuite" | "nordic-wetroom" | "powder-room" | "wellness-soak",
   "cutawayRoof": true,
   "insulationRValue": 21 | 25 | 30,
   "foundationType": "concrete-piers" | "concrete-slab" | "helical-piles" | "gravel-pad",
@@ -401,6 +427,7 @@ CRITICAL ARCHITECTURAL DIRECTIVES:
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
+      configLoader: 'runner',
       server: { middlewareMode: true },
       appType: 'spa',
     });

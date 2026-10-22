@@ -123,6 +123,7 @@ function isStructuralConfigChange(prev: ContainerModelConfig | null, curr: Conta
     prev.deckWidthFt !== curr.deckWidthFt ||
     prev.deckDepthFt !== curr.deckDepthFt ||
     prev.layoutType !== curr.layoutType ||
+    prev.foldoutState !== curr.foldoutState ||
     prev.activeStoryView !== curr.activeStoryView ||
     prev.cutawayRoof !== curr.cutawayRoof ||
     prev.solarPanelsCount !== curr.solarPanelsCount ||

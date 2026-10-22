@@ -15,6 +15,7 @@ import {
 import {
   CameraFocus,
   Category,
+  BUILDING_LABELS,
   DEFAULT_CONFIG,
   DoorStyle,
   FINISHES,
@@ -28,7 +29,7 @@ import {
 } from "./config";
 import { useState } from "react";
 import LayoutControls from "./LayoutControls";
-import { ItemKind } from "./layout";
+import { ItemKind, LayoutPreset } from "./layout";
 
 const CATEGORIES: {
   id: Category;
@@ -65,7 +66,7 @@ interface Props {
   onOpenPlan: () => void;
   selectedItemId: string | null;
   layoutNotice: string;
-  onLayoutPreset: (preset: "studio" | "work" | "stay" | "empty") => void;
+  onLayoutPreset: (preset: LayoutPreset) => void;
   onAddLayoutItem: (kind: ItemKind) => void;
   onSelectLayoutItem: (id: string) => void;
   onRemoveLayoutItem: (id: string) => void;
@@ -199,6 +200,23 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
                 {category.id === "layout" && <LayoutControls layout={config.layout} selectedId={selectedItemId} notice={layoutNotice} onPreset={onLayoutPreset} onAdd={onAddLayoutItem} onSelect={onSelectLayoutItem} onRemove={onRemoveLayoutItem}/>}
                 {category.id === "container" && (
                   <>
+                    <p className="studio-label">Structure system</p>
+                    <div className="studio-two">
+                      {choice("Classic module", config.buildingType === "standard", () => onChange({ buildingType: "standard" }, "exterior"), "Single or joined ISO shells")}
+                      {choice("Portable office", config.buildingType === "portable-office", () => onChange({ buildingType: "portable-office", containers: 1 }, "exterior"), "Focus or team workspace")}
+                      {choice("Service kiosk", config.buildingType === "retail-kiosk", () => onChange({ buildingType: "retail-kiosk", size: 20, containers: 1 }, "exterior"), "Coffee, retail or reception")}
+                      {choice("L courtyard", config.buildingType === "courtyard-l", () => onChange({ buildingType: "courtyard-l", size: 40, containers: 1 }, "exterior"), "Two modules with sheltered patio")}
+                      {choice("U courtyard", config.buildingType === "courtyard-u", () => onChange({ buildingType: "courtyard-u", size: 40, containers: 1 }, "exterior"), "Three-module family house")}
+                      {choice("Stacked office", config.buildingType === "stacked-office", () => onChange({ buildingType: "stacked-office", size: 40, containers: 1 }, "exterior"), "Two-storey portable workplace")}
+                      {choice("Fold-out house", config.buildingType === "foldout-home", () => onChange({ buildingType: "foldout-home", size: 40, containers: 1, foldoutState: "expanded" }, "exterior"), "8 ft transport · 24 ft deployed")}
+                    </div>
+                    {config.buildingType === "foldout-home" && <>
+                      <p className="studio-label">Deployment</p>
+                      <div className="studio-two">
+                        {choice("Expanded home", config.foldoutState === "expanded", () => onChange({ foldoutState: "expanded" }, "exterior"), "Full 7.31 m living width")}
+                        {choice("Transport mode", config.foldoutState === "transport", () => onChange({ foldoutState: "transport" }, "exterior"), "Locked 2.44 m road width")}
+                      </div>
+                    </>}
                     <p className="studio-label">Choose your foundation</p>
                     <div className="studio-two">
                       {choice(
@@ -216,8 +234,8 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
                     </div>
                     <p className="studio-label">Number of containers</p>
                     <div className="studio-two">
-                      {choice("Single container", config.containers === 1, () => onChange({ containers: 1 }, "exterior"), "One 2.44 m wide shell")}
-                      {choice("Double container", config.containers === 2, () => onChange({ containers: 2 }, "exterior"), "Two joined shells · 4.88 m wide")}
+                      {choice("Single container", config.containers === 1 && config.buildingType === "standard", () => onChange({ containers: 1, buildingType: "standard" }, "exterior"), "One 2.44 m wide shell")}
+                      {choice("Double container", config.containers === 2 && config.buildingType === "standard", () => onChange({ containers: 2, buildingType: "standard" }, "exterior"), "Two joined shells · 4.88 m wide")}
                     </div>
                     <p className="studio-label">Height</p>
                     <div className="studio-two">
@@ -546,10 +564,10 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
       <div className="studio-panel-footer">
         <div>
           <span>
-            {config.size}′ {config.highCube ? "HIGH CUBE" : "STANDARD"}
+            {BUILDING_LABELS[config.buildingType].toUpperCase()}
           </span>
           <small>
-            {config.windowStyle === "none"
+            {config.buildingType === "foldout-home" ? `${config.foldoutState === "expanded" ? "Expanded" : "Transport"} / ` : `${config.size}′ ${config.highCube ? "high cube" : "standard"} / `}{config.windowStyle === "none"
               ? "Original shell"
               : "Custom openings"}{" "}
             / {config.ac ? "Climate ready" : "Steel architecture"}

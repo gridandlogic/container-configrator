@@ -27,6 +27,19 @@ export interface LayoutItem {
   onTopOf?: string;
 }
 
+export type LayoutPreset =
+  | "studio"
+  | "work"
+  | "stay"
+  | "empty"
+  | "focus-office"
+  | "team-office"
+  | "coffee-kiosk"
+  | "courtyard-home"
+  | "l-courtyard-home"
+  | "stacked-office"
+  | "foldout-home";
+
 export const ITEM_CATALOG: { kind: ItemKind; label: string; width: number; depth: number; group: string }[] = [
   { kind: "bathroom", label: "Bathroom pod", width: 1.55, depth: 2.18, group: "Built-in" },
   { kind: "kitchenette", label: "Kitchenette", width: 1.55, depth: 0.56, group: "Built-in" },
@@ -117,12 +130,62 @@ export function addLayoutItem(layout: LayoutItem[], kind: ItemKind, length: numb
   return layout;
 }
 
-export function presetLayout(preset: "studio" | "work" | "stay" | "empty", length: number): LayoutItem[] {
+export function presetLayout(preset: LayoutPreset, length: number, containerWidth = 2.438): LayoutItem[] {
   if (preset === "empty") return [];
   const edge = -length / 2 + 0.88;
   const anchor = 0;
   const make = (kind: ItemKind, x: number, z: number, rotation: LayoutItem["rotation"] = 0): LayoutItem => ({ id: `${preset}-${kind}-${x}-${z}`, kind, x: snap(x), z, rotation });
   const bathroom = make("bathroom", edge, 0);
+  if (preset === "focus-office") return [
+    bathroom,
+    make("storage", edge + 1.45, -0.83),
+    make("desk", 0.15, -0.72),
+    make("chair", 0.15, 0.22),
+    make("sofa", length / 2 - 1.05, 0.54),
+  ];
+  if (preset === "team-office" || preset === "stacked-office") return [
+    bathroom,
+    make("kitchenette", edge + 1.72, -0.82),
+    make("storage", edge + 3.05, -0.86),
+    make("dining-table", 1.0, 0, 90),
+    make("chair", 0.05, 0, 90),
+    make("chair", 1.95, 0, 270),
+    make("desk", length / 2 - 1.0, -0.72),
+    make("chair", length / 2 - 1.0, 0.22),
+  ];
+  if (preset === "coffee-kiosk") return [
+    make("kitchenette", edge + 0.2, -0.78),
+    make("storage", edge + 1.75, -0.83),
+    make("dining-table", 0.9, -0.28),
+    make("chair", 1.85, -0.28, 270),
+  ];
+  if (preset === "courtyard-home" || preset === "l-courtyard-home") {
+    const wingX = length / 2 - 1.22;
+    const backZ = -containerWidth / 2 + 1.22;
+    const items = [
+      make("kitchenette", -1.35, backZ - 0.64),
+      make("dining-table", 0.75, backZ, 90),
+      make("sofa", 2.55, backZ, 180),
+      make("bed", -wingX, -0.25, 90),
+      make("bathroom", -wingX, 2.05),
+      make("storage", -wingX, -2.35, 90),
+    ];
+    if (preset === "courtyard-home") items.push(
+      make("bed", wingX, -0.25, 90),
+      make("desk", wingX, 1.55, 90),
+      make("chair", wingX, 2.5, 90),
+    );
+    return items;
+  }
+  if (preset === "foldout-home") return [
+    make("bathroom", edge, 0),
+    make("kitchenette", edge + 1.75, -0.72),
+    make("dining-table", -0.25, 0),
+    make("sofa", 1.7, -2.55),
+    make("coffee-table", 1.7, -1.55),
+    make("bed", length / 2 - 1.3, 2.55),
+    make("storage", length / 2 - 0.65, 1.35, 90),
+  ];
   if (preset === "work") return [
     bathroom,
     make("storage", edge + 1.45, -0.82),

@@ -14,7 +14,10 @@ export function generateArchitecturalPdf(
   });
 
   const cost = calculateConfigurationCost(modelConfig);
-  const sqFt = Math.round(modelConfig.lengthFt * modelConfig.widthFt * (modelConfig.layoutType === 'stacked-2story' ? 2 : 1));
+  const effectiveWidth = modelConfig.layoutType === 'expandable-foldout' && modelConfig.foldoutState === 'transport'
+    ? 8
+    : modelConfig.widthFt;
+  const sqFt = Math.round(modelConfig.lengthFt * effectiveWidth * (modelConfig.layoutType === 'stacked-2story' ? 2 : 1));
   const docDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
@@ -261,7 +264,7 @@ export function generateArchitecturalPdf(
   const pageW = 297;
   const pageH = 210;
   const is2Story = modelConfig.layoutType === 'stacked-2story';
-  const isWide = modelConfig.layoutType === 'double-wide' || modelConfig.layoutType === 'triple-wide';
+  const isWide = modelConfig.layoutType === 'double-wide' || modelConfig.layoutType === 'triple-wide' || modelConfig.layoutType === 'expandable-foldout';
 
   // Architectural Sheet Border
   doc.setDrawColor(20, 25, 35);
