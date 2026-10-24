@@ -130,8 +130,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       if (moving || damping) invalidate();
     }
     const assets = new StudioAssets(invalidate, (message) => {
-      sceneReadyRef.current = false;
-      setSceneStatus({ ready: false, message, error: true });
+      setEditNotice(message);
     });
     assetsRef.current = assets;
     scene.add(new THREE.HemisphereLight("#ecf3f2", "#77775e", 0.9));
@@ -306,7 +305,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       if (!item) return;
       const configNow = configRef.current;
       const bounds = layoutDimensions(configNow);
-      const next = event.type === "pointercancel" ? null : nearestFreePlacement({ ...item, x: placed.x, z: placed.z, onTopOf: undefined }, current, bounds.length, entryClearance(configNow.doorStyle, configNow.doorSide, bounds.length, bounds.width), bounds.width);
+      const next = event.type === "pointercancel" ? null : nearestFreePlacement({ ...item, x: placed.x, z: placed.z, onTopOf: undefined }, current, bounds.length, entryClearance(configNow.doorStyle, configNow.doorSide, bounds.length, bounds.width, configNow.doorPositionFt), bounds.width);
       if (!next) {
         activeGroup(item.id)?.position.set(item.x, 0, item.z);
         selectionHelperRef.current?.update();
@@ -416,10 +415,10 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
     invalidateRef.current();
     const currentEpoch = ++epoch.current;
     const interior = model.getObjectByName("Interior layout") as THREE.Group | undefined;
-    const furnitureReady = interior && config.layout.length
+    const furnitureReady = config.detailedModels && interior && config.layout.length
       ? upgradeInteriorAssets(
         interior,
-        config.layout,
+        config.layout.filter((item) => (item.floor ?? 0) === (config.activeFloor ?? 0)),
         dimensions(config).floor,
         assets,
         () => currentEpoch === epoch.current,
@@ -452,7 +451,10 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
         }),
       )
       : Promise.resolve();
-    void Promise.all([furnitureReady, assets.whenTexturesReady(), environmentReady.current, equipmentReady])
+    // The procedural model is interactive immediately; assets refine it in the background.
+    sceneReadyRef.current = true;
+    setSceneStatus({ ready: true, message: "", error: false });
+    void Promise.all([furnitureReady, assets.whenTexturesReady(), equipmentReady])
       .then(() => {
         if (currentEpoch !== epoch.current) return;
         renderer.shadowMap.needsUpdate = true;
@@ -463,8 +465,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       })
       .catch((error) => {
         if (currentEpoch !== epoch.current) return;
-        sceneReadyRef.current = false;
-        setSceneStatus({ ready: false, message: error instanceof Error ? error.message : "The 3D scene could not load.", error: true });
+        setEditNotice("Some detailed assets could not load. The editable preview remains available.");
       });
   }, [config]);
   useEffect(() => {
@@ -476,9 +477,9 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
   const planDim = layoutDimensions(config);
   const selectedItem = config.layout.find((item) => item.id === selectedId);
   const rotateSelected = (direction: -90 | 90) => {
-    if (!selectedItem || selectedItem.kind === "bathroom") return;
+    if (!selectedItem) return;
     const rotation = ((selectedItem.rotation + direction + 360) % 360) as LayoutItem["rotation"];
-    const next = nearestFreePlacement({ ...selectedItem, rotation, onTopOf: undefined }, config.layout, planDim.length, entryClearance(config.doorStyle, config.doorSide, planDim.length, planDim.width), planDim.width);
+    const next = nearestFreePlacement({ ...selectedItem, rotation, onTopOf: undefined }, config.layout, planDim.length, entryClearance(config.doorStyle, config.doorSide, planDim.length, planDim.width, config.doorPositionFt), planDim.width);
     if (!next) {
       setEditNotice("Move this item into clear space before rotating it.");
       return;
@@ -530,8 +531,8 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
         {selectedItem && <div className="studio-edit-bar" aria-label="Selected furniture controls">
           <div className="studio-edit-detail"><strong>{catalogItem(selectedItem.kind).label}</strong><span><Move size={13}/> Drag freely · {selectedItem.rotation}°</span></div>
           <div className="studio-edit-actions">
-            <button type="button" onClick={() => rotateSelected(-90)} disabled={selectedItem.kind === "bathroom"} aria-label="Rotate selected item left 90 degrees" title="Rotate left"><RotateCcw size={17}/></button>
-            <button type="button" onClick={() => rotateSelected(90)} disabled={selectedItem.kind === "bathroom"} aria-label="Rotate selected item right 90 degrees" title="Rotate right"><RotateCw size={17}/></button>
+            <button type="button" onClick={() => rotateSelected(-90)}  aria-label="Rotate selected item left 90 degrees" title="Rotate left"><RotateCcw size={17}/></button>
+            <button type="button" onClick={() => rotateSelected(90)}  aria-label="Rotate selected item right 90 degrees" title="Rotate right"><RotateCw size={17}/></button>
             <button type="button" className="studio-edit-delete" onClick={removeSelected} aria-label="Delete selected item" title="Delete item"><Trash2 size={17}/></button>
             <button type="button" onClick={() => onSelect(null)} aria-label="Deselect item" title="Deselect"><X size={17}/></button>
           </div>

@@ -1,5 +1,6 @@
 import { useRef, useState, type PointerEvent } from "react";
 import { ArrowDownToLine, Box, RotateCw, Trash2, ZoomIn, ZoomOut } from "lucide-react";
+import { CATALOG, roomZones } from "./catalog";
 import { BUILDING_LABELS, layoutDimensions, StudioConfig, WINDOWS } from "./config";
 import { blocksEntry, catalogItem, entryClearance, footprint, LayoutItem, nearestFreePlacement, resolvePlacement, snap, windowPosition } from "./layout";
 
@@ -9,6 +10,7 @@ interface Props {
   onSelect: (id: string | null) => void;
   onLayoutChange: (layout: LayoutItem[]) => void;
   onView3D: () => void;
+  onFloorChange: (floor: 0 | 1) => void;
 }
 
 const scale = 100;
@@ -20,19 +22,21 @@ const labels: Record<string, string> = {
   chair: "CHAIR", bed: "BED", desk: "DESK", storage: "STORAGE",
 };
 
-export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange, onView3D }: Props) {
+export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange, onView3D, onFloorChange }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const drag = useRef<{ id: string; offsetX: number; offsetZ: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ id: string; x: number; z: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [notice, setNotice] = useState("Drag an item to reposition it. Select one for more options.");
   const { length: L, width: W } = layoutDimensions(config);
-  const entry = entryClearance(config.doorStyle, config.doorSide, L, W);
+  const entry = entryClearance(config.doorStyle, config.doorSide, L, W, config.doorPositionFt);
   const blockedEntry = entry && config.layout.some((item) => blocksEntry(item, L, entry));
   const viewWidth = (L + 1.52) * scale;
   const viewHeight = (W + 2.18) * scale;
   const selected = config.layout.find((item) => item.id === selectedId);
-  const planItems = config.layout.map((item) => dragPreview?.id === item.id ? { ...item, x: dragPreview.x, z: dragPreview.z, onTopOf: undefined } : item)
+  const design = CATALOG.find((design) => design.id === config.catalogId);
+  const zones = design ? roomZones(design, config.activeFloor ?? 0) : [];
+  const planItems = config.layout.filter((item) => (item.floor ?? 0) === (config.activeFloor ?? 0)).map((item) => dragPreview?.id === item.id ? { ...item, x: dragPreview.x, z: dragPreview.z, onTopOf: undefined } : item)
     .sort((a, b) => Number(a.id === dragPreview?.id) - Number(b.id === dragPreview?.id));
   const px = (x: number) => insetX + (x + L / 2) * scale;
   const py = (z: number) => insetY + (z + W / 2) * scale;
@@ -53,7 +57,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
     } else setNotice("No clear floor space is available for this item.");
   }
   function rotateSelected() {
-    if (!selected || selected.kind === "bathroom") return;
+    if (!selected) return;
     const next = nearestFreePlacement({ ...selected, rotation: ((selected.rotation + 90) % 360) as LayoutItem["rotation"], onTopOf: undefined }, config.layout, L, entry, W);
     if (next) {
       onLayoutChange(config.layout.map((item) => item.id === selected.id ? next : item));
@@ -119,9 +123,9 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
     image.src = url;
   }
   const window = WINDOWS.find((option) => option.id === config.windowStyle)!;
-  const windowX = windowPosition(L, config.layout);
+  const windowX = windowPosition(L, config.layout, config.windowPositionFt);
   const windowW = Math.min(window.w, L * 0.32);
-  const doorX = L * 0.27;
+  const doorX = config.doorPositionFt === undefined ? L * .27 : config.doorPositionFt * .3048;
   const doorW = config.doorStyle === "personnel" ? 0.914 : Math.min(config.doorStyle === "vinyl" ? 2.438 : 1.83, L * 0.33);
 
   return <main className="floorplan-view" aria-label="Editable container floor plan">
@@ -129,25 +133,26 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
       <div><span className="floorplan-eyebrow">YOUR CONTAINER / SPACE PLANNER</span><h2>Floor plan</h2><p>{(L - 0.2).toFixed(2)} × {(W - 0.15).toFixed(2)} m usable floor · {config.layout.length} placed {config.layout.length === 1 ? "item" : "items"}</p></div>
       <div className="floorplan-toolbar-actions"><button type="button" onClick={() => exportPlan("png")} title="Download high resolution floor plan image"><ArrowDownToLine size={16}/> <span>Export PNG</span></button><button type="button" onClick={() => exportPlan("svg")} title="Download editable vector floor plan">SVG</button><button type="button" className="floorplan-3d-button" onClick={onView3D}><Box size={16}/> View in 3D</button></div>
     </div>
+    {config.buildingType === "stacked-office" && <div className="plan-floor-tabs" aria-label="Storey">{([0,1] as const).map((floor) => <button type="button" key={floor} aria-pressed={(config.activeFloor ?? 0) === floor} onClick={() => onFloorChange(floor)}>{floor === 0 ? "Ground floor" : "Upper floor"}</button>)}</div>}
     {blockedEntry && <p className="floorplan-warning" role="alert">An item overlaps the entry clearance. Move it before finalizing the layout.</p>}
     <div className="floorplan-workspace">
       <div className="floorplan-paper" style={{ width: `${zoom * 100}%` }}>
         <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" viewBox={`0 0 ${viewWidth} ${viewHeight}`} role="img" aria-label={`Editable ${config.size} foot container floor plan`} onPointerDown={() => onSelect(null)}>
           <defs><pattern id="plan-grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#e4e9e4" strokeWidth="1"/></pattern></defs>
           <rect width={viewWidth} height={viewHeight} fill="#ffffff"/>
-          <text x={insetX} y="35" fontFamily="Arial" fontSize="18" fontWeight="700" fill="#151515">CONTAINER FLOOR PLAN</text>
+          <text x={insetX} y="35" fontFamily="Arial" fontSize="18" fontWeight="700" fill="#151515">{design?.name.toUpperCase() ?? "CONTAINER FLOOR PLAN"}</text>
           <text x={insetX} y="55" fontFamily="Arial" fontSize="10" letterSpacing="1.4" fill="#5a5a5a">{BUILDING_LABELS[config.buildingType].toUpperCase()}  /  {config.layout.length} PLACED ITEMS</text>
           <line x1={insetX} x2={viewWidth - insetX} y1="69" y2="69" stroke="#1b1b1b" strokeWidth="1"/>
           <line x1={insetX} x2={insetX + L * scale} y1={insetY - 30} y2={insetY - 30} stroke="#708176" strokeWidth="1"/>
           <path d={`M ${insetX} ${insetY - 38} v 16 M ${insetX + L * scale} ${insetY - 38} v 16`} stroke="#708176"/>
-          <text x={insetX + L * scale / 2} y={insetY - 38} textAnchor="middle" fontSize="12" fill="#26382b" fontFamily="Arial">{L.toFixed(2)} m exterior</text>
+          <text x={insetX + L * scale / 2} y={insetY - 38} textAnchor="middle" fontSize="12" fill="#26382b" fontFamily="Arial">{(L / .3048).toFixed(1)} ft / {L.toFixed(2)} m exterior</text>
           <line x1={insetX - 30} x2={insetX - 30} y1={insetY} y2={insetY + W * scale} stroke="#708176" strokeWidth="1"/>
           <path d={`M ${insetX - 38} ${insetY} h 16 M ${insetX - 38} ${insetY + W * scale} h 16`} stroke="#708176"/>
-          <text x={insetX - 40} y={insetY + W * scale / 2} textAnchor="middle" transform={`rotate(-90 ${insetX - 40} ${insetY + W * scale / 2})`} fontSize="12" fill="#26382b" fontFamily="Arial">{W.toFixed(2)} m</text>
+          <text x={insetX - 40} y={insetY + W * scale / 2} textAnchor="middle" transform={`rotate(-90 ${insetX - 40} ${insetY + W * scale / 2})`} fontSize="12" fill="#26382b" fontFamily="Arial">{(W / .3048).toFixed(1)} ft / {W.toFixed(2)} m</text>
           {config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u" ? <g>
-            <rect x={insetX} y={insetY} width={L * scale} height={2.438 * scale} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>
-            <rect x={insetX} y={insetY + 2.438 * scale - 3} width={2.438 * scale} height={(W - 2.438) * scale + 3} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>
-            {config.buildingType === "courtyard-u" && <rect x={insetX + (L - 2.438) * scale} y={insetY + 2.438 * scale - 3} width={2.438 * scale} height={(W - 2.438) * scale + 3} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>}
+            <rect x={insetX} y={insetY} width={L * scale} height={(config.catalogId === "courtyard" ? 12 * .3048 : 2.438) * scale} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>
+            <rect x={insetX} y={insetY + (config.catalogId === "courtyard" ? 12 * .3048 : 2.438) * scale - 3} width={(config.catalogId === "courtyard" ? 10 * .3048 : 2.438) * scale} height={(W - (config.catalogId === "courtyard" ? 12 * .3048 : 2.438)) * scale + 3} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>
+            {config.buildingType === "courtyard-u" && <rect x={insetX + (L - (config.catalogId === "courtyard" ? 10 * .3048 : 2.438)) * scale} y={insetY + (config.catalogId === "courtyard" ? 12 * .3048 : 2.438) * scale - 3} width={(config.catalogId === "courtyard" ? 10 * .3048 : 2.438) * scale} height={(W - (config.catalogId === "courtyard" ? 12 * .3048 : 2.438)) * scale + 3} fill="url(#plan-grid)" stroke="#1d2921" strokeWidth="6"/>}
             <text x={insetX + L * scale / 2} y={insetY + (W + 2.438) * scale / 2} textAnchor="middle" fontFamily="Arial" fontSize="12" fill="#758277" letterSpacing="1.2">OPEN COURTYARD</text>
           </g> : <g>
             <rect x={insetX} y={insetY} width={L * scale} height={W * scale} fill="white" stroke="#1d2921" strokeWidth="6"/>
@@ -156,7 +161,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
               <line x1={insetX + 4} x2={insetX + L * scale - 4} y1={py(-1.219)} y2={py(-1.219)} stroke="#b07a32" strokeWidth="2" strokeDasharray="10 6"/>
               <line x1={insetX + 4} x2={insetX + L * scale - 4} y1={py(1.219)} y2={py(1.219)} stroke="#b07a32" strokeWidth="2" strokeDasharray="10 6"/>
               <text x={insetX + 12} y={py(-1.219) - 8} fontFamily="Arial" fontSize="9" fill="#95651f">FOLD-OUT HINGE LINE</text>
-              {config.foldoutState === "transport" && <rect x={insetX + 5} y={py(-1.219)} width={L * scale - 10} height={2.438 * scale} fill="none" stroke="#b07a32" strokeWidth="4"/>}
+              {config.foldoutState === "transport" && <rect x={insetX + 5} y={py(-1.219)} width={L * scale - 10} height={(config.catalogId === "courtyard" ? 12 * .3048 : 2.438) * scale} fill="none" stroke="#b07a32" strokeWidth="4"/>}
             </>}
             {config.buildingType === "stacked-office" && <text x={insetX + 14} y={insetY + 22} fontFamily="Arial" fontSize="10" fill="#5c6d60">GROUND FLOOR · UPPER MODULE ABOVE</text>}
           </g>}
@@ -165,6 +170,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
           {config.windowStyle !== "none" && (config.windowSide === "left" || config.windowSide === "both") && <g><line x1={px(windowX - windowW / 2)} x2={px(windowX + windowW / 2)} y1={py(W / 2)} y2={py(W / 2)} stroke="white" strokeWidth="9"/><line x1={px(windowX - windowW / 2)} x2={px(windowX + windowW / 2)} y1={py(W / 2)} y2={py(W / 2)} stroke="#8dbac1" strokeWidth="5"/></g>}
           {config.windowStyle !== "none" && (config.windowSide === "right" || config.windowSide === "both") && <g><line x1={px(-windowX - windowW / 2)} x2={px(-windowX + windowW / 2)} y1={py(-W / 2)} y2={py(-W / 2)} stroke="white" strokeWidth="9"/><line x1={px(-windowX - windowW / 2)} x2={px(-windowX + windowW / 2)} y1={py(-W / 2)} y2={py(-W / 2)} stroke="#8dbac1" strokeWidth="5"/></g>}
           {config.doorStyle !== "none" && <g><line x1={px(doorX - doorW / 2)} x2={px(doorX + doorW / 2)} y1={py(config.doorSide === "left" ? W / 2 : -W / 2)} y2={py(config.doorSide === "left" ? W / 2 : -W / 2)} stroke="white" strokeWidth="10"/><line x1={px(doorX - doorW / 2)} x2={px(doorX + doorW / 2)} y1={py(config.doorSide === "left" ? W / 2 : -W / 2)} y2={py(config.doorSide === "left" ? W / 2 : -W / 2)} stroke="#708d7d" strokeWidth="3" strokeDasharray={config.doorStyle === "roll-up" ? "5 4" : undefined}/></g>}
+          {zones.map((zone, index) => <g key={index} pointerEvents="none"><rect x={px(zone.x - zone.w / 2)} y={py(zone.z - zone.d / 2)} width={zone.w * scale} height={zone.d * scale} fill={zone.name === "Washroom" ? "#d9e8e8" : "#e8e1cf"} fillOpacity=".25" stroke="#799286" strokeWidth="1.3" strokeDasharray="6 4"/><text x={px(zone.x - zone.w / 2) + 9} y={py(zone.z - zone.d / 2) + 16} fontSize="9" fill="#4b6657" fontFamily="Arial">{zone.name.toUpperCase()} · {(zone.w / .3048).toFixed(0)}′ × {(zone.d / .3048).toFixed(0)}′</text></g>)}
           {planItems.map((item) => {
             const size = footprint(item);
             const x = px(item.x) - size.width * scale / 2, y = py(item.z) - size.depth * scale / 2;
@@ -176,7 +182,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
               onPointerCancel={() => { drag.current = null; setDragPreview(null); }}
               onKeyDown={(event) => { if (event.key.startsWith("Arrow")) { event.preventDefault(); const dx = event.key === "ArrowLeft" ? -0.1 : event.key === "ArrowRight" ? 0.1 : 0; const dz = event.key === "ArrowUp" ? -0.1 : event.key === "ArrowDown" ? 0.1 : 0; move(item, item.x + dx, item.z + dz); } else if (event.key === "Delete" || event.key === "Backspace") { onLayoutChange(config.layout.filter((entry) => entry.id !== item.id)); onSelect(null); } else if (event.key.toLowerCase() === "r") rotateSelected(); }}>
               <rect x={x} y={y} width={size.width * scale} height={size.depth * scale} rx={item.kind === "bathroom" || item.kind === "partition" ? 0 : 5} fill={item.kind === "bathroom" ? "#e7eee9" : item.kind === "kitchenette" ? "#e8e3d8" : "#f0efe9"} stroke={chosen ? "#1d5f46" : "#5e6f62"} strokeWidth={chosen ? 3 : 1.5}/>
-              {item.kind === "bathroom" && <><line x1={item.x < 0 ? x + size.width * scale - 5 : x + 5} x2={item.x < 0 ? x + size.width * scale - 5 : x + 5} y1={y + 4} y2={y + size.depth * scale * .35} stroke="#31493a" strokeWidth="5"/><line x1={item.x < 0 ? x + size.width * scale - 5 : x + 5} x2={item.x < 0 ? x + size.width * scale - 5 : x + 5} y1={y + size.depth * scale * .7} y2={y + size.depth * scale - 4} stroke="#31493a" strokeWidth="5"/><rect x={x + 13} y={y + 12} width="55" height="65" rx="3" fill="#d5e8e9" stroke="#8aa7a6"/><ellipse cx={x + 54} cy={y + 148} rx="20" ry="28" fill="white" stroke="#98a8a0"/></>}
+              {item.kind === "bathroom" && <g transform={`translate(${x} ${y}) scale(${size.width / 1.55} ${size.depth / 2.18})`} pointerEvents="none"><path d="M150 4 V76 M150 154 V214" stroke="#31493a" strokeWidth="5"/>{config.washroom?.shower !== false && <rect x="13" y="12" width="55" height="65" rx="3" fill="#d5e8e9" stroke="#8aa7a6"/>}{config.washroom?.toilet === "squat" ? <rect x="32" y="126" width="44" height="60" rx="8" fill="white" stroke="#98a8a0"/> : <ellipse cx="54" cy="156" rx="20" ry="28" fill="white" stroke="#98a8a0"/>}<rect x="103" y="20" width="30" height="27" rx="5" fill="white" stroke="#98a8a0"/></g>}
               {item.kind === "sofa" && <><rect x={x + 7} y={y + 6} width={size.width * scale - 14} height="20" rx="4" fill="#d3d7cf" stroke="#9da99b"/><line x1={x + size.width * scale / 2} x2={x + size.width * scale / 2} y1={y + 28} y2={y + size.depth * scale - 6} stroke="#abb7a9"/></>}
               {item.kind === "bed" && <><rect x={x + 8} y={y + 8} width={size.width * scale - 16} height={size.depth * scale - 16} rx="4" fill="#fff" stroke="#aab6aa"/><rect x={x + 14} y={y + 13} width="36" height="23" rx="4" fill="#eceee8"/></>}
               <text x={x + size.width * scale / 2} y={y + size.depth * scale / 2 + 4} textAnchor="middle" fontFamily="Arial" fontWeight="700" fontSize={size.width < .65 ? 8 : 10} letterSpacing=".7" fill="#23362a" pointerEvents="none">{labels[item.kind]}</text>
@@ -194,7 +200,7 @@ export default function FloorPlan({ config, selectedId, onSelect, onLayoutChange
         </svg>
       </div>
     </div>
-    {selected && <div className="floorplan-selection"><div><span>SELECTED ITEM</span><strong>{catalogItem(selected.kind).label}</strong><small>{selected.kind === "partition" ? `${(selected.wallLength ?? 2.12).toFixed(1)} m wall · ` : `${footprint(selected).width.toFixed(2)} × ${footprint(selected).depth.toFixed(2)} m · `}{selected.rotation}°</small></div>{selected.kind === "partition" && <><button type="button" onClick={() => resizeWall(-0.2)} aria-label="Shorten wall">−</button><button type="button" onClick={() => resizeWall(0.2)} aria-label="Lengthen wall">+</button></>}<button type="button" onClick={rotateSelected} disabled={selected.kind === "bathroom"} aria-label="Rotate selected item"><RotateCw size={17}/></button><button type="button" onClick={removeSelected} aria-label="Remove selected item"><Trash2 size={17}/></button></div>}
+    {selected && <div className="floorplan-selection"><div><span>SELECTED ITEM</span><strong>{catalogItem(selected.kind).label}</strong><small>{selected.kind === "partition" ? `${(selected.wallLength ?? 2.12).toFixed(1)} m wall · ` : `${footprint(selected).width.toFixed(2)} × ${footprint(selected).depth.toFixed(2)} m · `}{selected.rotation}°</small></div>{selected.kind === "bathroom" && <div className="bath-size-controls">{(["width", "depth"] as const).map((axis) => <label key={axis}>{axis === "width" ? "Length" : "Width"} (m)<input type="number" min="1.1" max="3" step=".1" value={selected[axis] ?? (axis === "width" ? 1.55 : 2.18)} onChange={(event) => { const value = +event.target.value; if (value < 1.1 || value > 3) return; const next = resolvePlacement({ ...selected, [axis]: value }, config.layout, L, entry, W); if (next) { onLayoutChange(config.layout.map((item) => item.id === next.id ? next : item)); setNotice("Washroom dimensions updated."); } else setNotice("That size overlaps a piece or leaves the shell. Move it into clear space first."); }}/></label>)}</div>}{selected.kind === "partition" && <><button type="button" onClick={() => resizeWall(-0.2)} aria-label="Shorten wall">−</button><button type="button" onClick={() => resizeWall(0.2)} aria-label="Lengthen wall">+</button></>}<button type="button" onClick={rotateSelected}  aria-label="Rotate selected item"><RotateCw size={17}/></button><button type="button" onClick={removeSelected} aria-label="Remove selected item"><Trash2 size={17}/></button></div>}
     <div className="floorplan-bottom"><p role="status">{notice}</p><div className="floorplan-zoom"><button type="button" onClick={() => setZoom((value) => Math.max(0.8, +(value - 0.2).toFixed(1)))} aria-label="Zoom out"><ZoomOut size={16}/></button><span>{Math.round(zoom * 100)}%</span><button type="button" onClick={() => setZoom((value) => Math.min(2, +(value + 0.2).toFixed(1)))} aria-label="Zoom in"><ZoomIn size={16}/></button></div></div>
   </main>;
 }

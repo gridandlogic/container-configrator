@@ -29,6 +29,9 @@ import {
 } from "./config";
 import { useState } from "react";
 import LayoutControls from "./LayoutControls";
+import CatalogControls from "./CatalogControls";
+import { CatalogDesign, CATALOG } from "./catalog";
+import { ExteriorOptions, WashroomOptions } from "./DesignOptions";
 import { ItemKind, LayoutPreset } from "./layout";
 
 const CATEGORIES: {
@@ -47,6 +50,7 @@ const CATEGORIES: {
   },
   { id: "windows", label: "Windows", icon: PanelsTopLeft, focus: "left" },
   { id: "doors", label: "Doors", icon: DoorOpen, focus: "left" },
+  { id: "washroom", label: "Washroom", icon: Home, focus: "layout" },
   { id: "interior", label: "Interior", icon: Home, focus: "interior" },
   { id: "flooring", label: "Flooring", icon: Layers, focus: "floor" },
   { id: "walls", label: "Wall finish", icon: Wallpaper, focus: "walls" },
@@ -63,6 +67,7 @@ interface Props {
   onChange: (patch: Partial<StudioConfig>, focus: CameraFocus) => void;
   onFocus: (focus: CameraFocus) => void;
   onSave: () => void;
+  onCatalog: (design: CatalogDesign) => void;
   onOpenPlan: () => void;
   selectedItemId: string | null;
   layoutNotice: string;
@@ -71,7 +76,7 @@ interface Props {
   onSelectLayoutItem: (id: string) => void;
   onRemoveLayoutItem: (id: string) => void;
 }
-export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan, selectedItemId, layoutNotice, onLayoutPreset, onAddLayoutItem, onSelectLayoutItem, onRemoveLayoutItem }: Props) {
+export default function Controls({ onCatalog, config, onChange, onFocus, onSave, onOpenPlan, selectedItemId, layoutNotice, onLayoutPreset, onAddLayoutItem, onSelectLayoutItem, onRemoveLayoutItem }: Props) {
   const [open, setOpen] = useState<Category | null>("layout");
   const [saved, setSaved] = useState(false);
   const dim = dimensions(config);
@@ -197,9 +202,15 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
             </button>
             {open === category.id && (
               <div className="studio-section-body">
+                {category.id === "layout" && <CatalogControls activeId={config.catalogId} onChoose={onCatalog}/>}
+                {category.id === "washroom" && <WashroomOptions config={config} onChange={(patch) => onChange(patch, "layout")}/>}
                 {category.id === "layout" && <LayoutControls layout={config.layout} selectedId={selectedItemId} notice={layoutNotice} onPreset={onLayoutPreset} onAdd={onAddLayoutItem} onSelect={onSelectLayoutItem} onRemove={onRemoveLayoutItem}/>}
                 {category.id === "container" && (
                   <>
+                    <div className="design-options studio-two">
+                      <label>Length (ft)<input type="number" min="16" max="45" step="1" value={config.lengthFt ?? config.size} onChange={(e) => { const value = +e.target.value; if (value >= 16 && value <= 45) onChange({ lengthFt: value, catalogId: undefined }, "exterior"); }}/></label>
+                      <label>Module width (ft)<select value={config.widthFt ?? 8} onChange={(e) => onChange({ widthFt: +e.target.value, catalogId: undefined }, "exterior")}>{[8,10,12,16,24].map((width) => <option key={width} value={width}>{width} ft</option>)}</select></label>
+                    </div>
                     <p className="studio-label">Structure system</p>
                     <div className="studio-two">
                       {choice("Classic module", config.buildingType === "standard", () => onChange({ buildingType: "standard" }, "exterior"), "Single or joined ISO shells")}
@@ -222,13 +233,13 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
                       {choice(
                         "20 foot",
                         config.size === 20,
-                        () => onChange({ size: 20 }, "exterior"),
+                        () => onChange({ size: 20, lengthFt: 20, catalogId: undefined }, "exterior"),
                         "6.06 m · versatile footprint",
                       )}
                       {choice(
                         "40 foot",
                         config.size === 40,
-                        () => onChange({ size: 40 }, "exterior"),
+                        () => onChange({ size: 40, lengthFt: 40, catalogId: undefined }, "exterior"),
                         "12.19 m · generous space",
                       )}
                     </div>
@@ -274,7 +285,8 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
                 )}
                 {category.id === "exterior" && (
                   <>
-                    <p className="studio-label">Painted steel / satin finish</p>
+                    <ExteriorOptions config={config} onChange={(patch) => onChange(patch, "exterior")}/>
+                    <p className="studio-label">Exterior colour</p>
                     <div className="studio-swatches">
                       {FINISHES.map(([name, color]) => (
                         <button
@@ -311,6 +323,7 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
                 )}
                 {category.id === "windows" && (
                   <>
+                    <label className="opening-position">Window position from centre · {(config.windowPositionFt ?? -dim.length * .26 / .3048).toFixed(1)} ft<input aria-label="Window position from centre" type="range" min={-(dim.length / .3048 / 2 - 4)} max={dim.length / .3048 / 2 - 4} step=".5" value={config.windowPositionFt ?? -dim.length * .26 / .3048} onChange={(e) => onChange({ windowPositionFt: +e.target.value }, openingFocus("window", config.windowSide))}/></label>
                     <p className="studio-label">Position</p>
                     {sides("windowSide")}
                     <div className="studio-window-grid">
@@ -344,6 +357,7 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
                 )}
                 {category.id === "doors" && (
                   <>
+                    <label className="opening-position">Entry position from centre · {(config.doorPositionFt ?? dim.length * .27 / .3048).toFixed(1)} ft<input aria-label="Entry position from centre" type="range" min={-(dim.length / .3048 / 2 - 4)} max={dim.length / .3048 / 2 - 4} step=".5" value={config.doorPositionFt ?? dim.length * .27 / .3048} onChange={(e) => onChange({ doorPositionFt: +e.target.value }, openingFocus("door", config.doorSide))}/></label>
                     <p className="studio-label">Long-wall position</p>
                     {sides("doorSide")}
                     <div className="studio-door-list">
@@ -402,6 +416,7 @@ export default function Controls({ config, onChange, onFocus, onSave, onOpenPlan
                 )}
                 {category.id === "interior" && (
                   <>
+                    <label className="studio-toggle"><span>Detailed furniture models<small>Load higher detail on demand</small></span><input type="checkbox" checked={!!config.detailedModels} onChange={(e) => onChange({ detailedModels: e.target.checked }, "layout")}/></label>
                     <p className="studio-label">Inspect the space</p>
                     <div className="studio-two">
                       {choice(

@@ -1,6 +1,8 @@
-import { useEffect, useReducer, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useReducer, useRef, useState } from "react";
+import type { ViewerHandle } from "./Viewport";
 import Controls from "./Controls";
-import Viewport, { ViewerHandle } from "./Viewport";
+const Viewport = lazy(() => import("./Viewport"));
+import { catalogConfig, CatalogDesign } from "./catalog";
 import FloorPlan from "./FloorPlan";
 import { addLayoutItem, correctOverlaps, entryClearance, ItemKind, LayoutItem, LayoutPreset, nearestFreePlacement, presetLayout } from "./layout";
 import {
@@ -11,51 +13,40 @@ import {
   layoutDimensions,
   StudioConfig,
 } from "./config";
-import { isInteriorFocus } from "./camera";
-import { preloadStudioAssets } from "./assets";
+const isInteriorFocus = (view: CameraFocus) => ["interior", "floor", "walls", "indoor-ac"].includes(view);
 import "./studio.css";
-
 const DESIGN_STORAGE_KEY = "grid-logic-studio-design-v4";
-
 export default function Studio() {
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  const [loading, setLoading] = useState({ ready: false, loaded: 0, total: 25, error: "" });
-  useEffect(() => {
-    let active = true;
-    setLoading({ ready: false, loaded: 0, total: 25, error: "" });
-    void preloadStudioAssets((loaded, total) => {
-      if (active) setLoading((current) => ({ ...current, loaded, total }));
-    }).then(() => {
-      if (active) setLoading((current) => ({ ...current, ready: true }));
-    }).catch(() => {
-      if (active) setLoading((current) => ({ ...current, error: "Furniture or finish textures could not be loaded." }));
-    });
-    return () => { active = false; };
-  }, [loadAttempt]);
   const [config, dispatch] = useReducer(configReducer, DEFAULT_CONFIG, (initial) => {
     try {
       const saved = JSON.parse(localStorage.getItem(DESIGN_STORAGE_KEY) || "null");
-      if (!saved || (saved.size !== 20 && saved.size !== 40) || !Array.isArray(saved.layout)) return initial;
+      if (!saved || !Array.isArray(saved.layout)) return initial;
       const hydrated = { ...initial, ...saved } as StudioConfig;
       const bounds = layoutDimensions(hydrated);
-      return { ...hydrated, layout: correctOverlaps(saved.layout, bounds.length, entryClearance(hydrated.doorStyle, hydrated.doorSide, bounds.length, bounds.width), bounds.width) };
+      return { ...hydrated, layout: correctOverlaps(saved.layout, bounds.length, entryClearance(hydrated.doorStyle, hydrated.doorSide, bounds.length, bounds.width, hydrated.doorPositionFt), bounds.width) };
     } catch { return initial; }
   });
   useEffect(() => {
     const { length, width } = layoutDimensions(config);
-    const corrected = correctOverlaps(config.layout, length, entryClearance(config.doorStyle, config.doorSide, length, width), width);
+    const corrected = correctOverlaps(config.layout, length, entryClearance(config.doorStyle, config.doorSide, length, width, config.doorPositionFt), width);
     if (corrected.some((item, index) => item.x !== config.layout[index].x || item.z !== config.layout[index].z || item.onTopOf !== config.layout[index].onTopOf)) dispatch({ layout: corrected });
-  }, [config.layout, config.size, config.containers, config.buildingType, config.foldoutState, config.doorStyle, config.doorSide]);
+  }, [config.layout, config.size, config.lengthFt, config.widthFt, config.containers, config.buildingType, config.foldoutState, config.doorStyle, config.doorSide, config.doorPositionFt]);
+  useEffect(() => {
+    performance.mark("studio-plan-ready");
+    document.documentElement.dataset.planReadyMs = performance.now().toFixed(0);
+  }, []);
   const [mode, setMode] = useState<"plan" | "3d">("plan");
+  const viewer = useRef<ViewerHandle>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [layoutNotice, setLayoutNotice] = useState("Choose a template or add a piece, then drag it in the plan.");
   const [request, setRequest] = useState<CameraRequest>({
     focus: "exterior",
     sequence: 0,
   });
-  const viewer = useRef<ViewerHandle>(null);
   const focus = (view: CameraFocus) => {
     setMode("3d");
+    if (view === "exterior") dispatch({ cutaway: false });
+    if (view === "layout") dispatch({ cutaway: true });
     if (isInteriorFocus(view)) dispatch({ cargoOpen: true });
     setRequest((previous) => ({
       focus: view,
@@ -64,7 +55,10 @@ export default function Studio() {
   };
   const change = (patch: Partial<StudioConfig>, view: CameraFocus) => {
     setMode("3d");
+    if (patch.roofProfile || patch.roofColor || patch.cladding || patch.solar !== undefined || patch.canopy !== undefined || patch.terraceFt !== undefined) patch = { ...patch, cutaway: false };
     if (
+      (patch.lengthFt && patch.lengthFt !== config.lengthFt) ||
+      (patch.widthFt && patch.widthFt !== config.widthFt) ||
       (patch.size && patch.size !== config.size) ||
       (patch.containers && patch.containers !== config.containers) ||
       (patch.buildingType && patch.buildingType !== config.buildingType)
@@ -73,7 +67,7 @@ export default function Studio() {
       const { length, width } = layoutDimensions(nextConfig);
       const shifted = config.layout.map((item) => item.kind === "bathroom" ? { ...item, x: -(length / 2 - 0.88) } : item);
       const kept: LayoutItem[] = [];
-      const entry = entryClearance(config.doorStyle, config.doorSide, length, width);
+      const entry = entryClearance(config.doorStyle, config.doorSide, length, width, config.doorPositionFt);
       for (const item of shifted) {
         const placed = nearestFreePlacement(item, kept, length, entry, width);
         if (placed) kept.push(placed);
@@ -92,7 +86,7 @@ export default function Studio() {
   };
   const updateLayout = (layout: LayoutItem[]) => {
     const { length, width } = layoutDimensions(config);
-    dispatch({ layout: correctOverlaps(layout, length, entryClearance(config.doorStyle, config.doorSide, length, width), width) });
+    dispatch({ layout: correctOverlaps(layout, length, entryClearance(config.doorStyle, config.doorSide, length, width, config.doorPositionFt), width) });
   };
   const preset = (name: LayoutPreset) => {
     const shellPatch: Partial<StudioConfig> =
@@ -113,12 +107,15 @@ export default function Studio() {
                     : name === "empty"
                       ? {}
                       : { buildingType: "standard" };
+    shellPatch.catalogId = undefined;
+    shellPatch.lengthFt = undefined;
+    shellPatch.widthFt = undefined;
     const nextConfig = { ...config, ...shellPatch };
     const bounds = layoutDimensions(nextConfig);
     const layout = correctOverlaps(
       presetLayout(name, bounds.length, bounds.width),
       bounds.length,
-      entryClearance(nextConfig.doorStyle, nextConfig.doorSide, bounds.length, bounds.width),
+      entryClearance(nextConfig.doorStyle, nextConfig.doorSide, bounds.length, bounds.width, nextConfig.doorPositionFt),
       bounds.width,
     );
     dispatch({ ...shellPatch, layout });
@@ -134,10 +131,14 @@ export default function Studio() {
   };
   const add = (kind: ItemKind) => {
     const { length, width } = layoutDimensions(config);
-    const next = addLayoutItem(config.layout, kind, length, entryClearance(config.doorStyle, config.doorSide, length, width), width);
+    const currentFloor = config.layout.filter((item) => (item.floor ?? 0) === (config.activeFloor ?? 0));
+    const added = addLayoutItem(currentFloor, kind, length, entryClearance(config.doorStyle, config.doorSide, length, width, config.doorPositionFt), width);
     setMode("plan");
-    if (next === config.layout) setLayoutNotice("No clear space for that item. Move or remove another piece first.");
-    else { updateLayout(next); setSelectedItemId(next[next.length - 1].id); setLayoutNotice("Item added. Drag it to the position you want."); }
+    if (added === currentFloor) setLayoutNotice("No clear space for that item. Move or remove another piece first.");
+    else {
+      const next = [...config.layout.filter((item) => (item.floor ?? 0) !== (config.activeFloor ?? 0)), ...added.map((item) => ({ ...item, floor: config.activeFloor ?? 0 }))];
+      updateLayout(next); setSelectedItemId(next[next.length - 1].id); setLayoutNotice("Item added. Drag it to the position you want.");
+    }
   };
   const viewLayout3D = () => {
     dispatch({ cutaway: true });
@@ -148,22 +149,17 @@ export default function Studio() {
     const key = door === "cargo" ? "cargoOpen" : door === "side" ? "sideDoorOpen" : "rearRollupOpen";
     dispatch({ [key]: !config[key] });
   };
-  if (!loading.ready) return (
-    <main className="studio-boot" aria-label="Loading container configurator">
-      <div className="studio-boot-card" role="status" aria-live="polite">
-        <span className="studio-boot-eyebrow">Grid & Logic / CONTAINER STUDIO</span>
-        <h1>Preparing your<br/><em>studio.</em></h1>
-        <p>{loading.error || `Loading furniture and finish textures · ${loading.loaded} of ${loading.total}`}</p>
-        <div className="studio-boot-track" role="progressbar" aria-valuenow={loading.loaded} aria-valuemin={0} aria-valuemax={loading.total} aria-label="Furniture loading progress"><span style={{ width: `${loading.loaded / loading.total * 100}%` }}/></div>
-        {loading.error && <button type="button" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry loading</button>}
-      </div>
-    </main>
-  );
   return (
     <div className="container-studio">
       <Controls
         config={config}
         onChange={change}
+        onCatalog={(design: CatalogDesign) => {
+          const next = { ...config, ...catalogConfig(design) };
+          const bounds = layoutDimensions(next);
+          dispatch({ ...next, layout: correctOverlaps(next.layout, bounds.length, entryClearance(next.doorStyle, next.doorSide, bounds.length, bounds.width, next.doorPositionFt), bounds.width) });
+          setSelectedItemId(null); setMode("plan"); setLayoutNotice(`${design.name} loaded. Dimensions, rooms and finishes are editable.`);
+        }}
         onFocus={focus}
         onOpenPlan={() => setMode("plan")}
         selectedItemId={selectedItemId}
@@ -189,7 +185,7 @@ export default function Studio() {
           setTimeout(() => URL.revokeObjectURL(url), 1000);
         }}
       />
-      {mode === "plan" ? <FloorPlan config={config} selectedId={selectedItemId} onSelect={setSelectedItemId} onLayoutChange={updateLayout} onView3D={viewLayout3D}/> : <Viewport ref={viewer} config={config} request={request} selectedId={selectedItemId} onSelect={setSelectedItemId} onLayoutChange={updateLayout} onFocus={focus} onOpenPlan={() => setMode("plan")} onToggleDoor={toggleDoor}/>}
+      {mode === "plan" ? <FloorPlan config={config} selectedId={selectedItemId} onSelect={setSelectedItemId} onLayoutChange={updateLayout} onView3D={viewLayout3D} onFloorChange={(activeFloor) => { dispatch({ activeFloor }); setSelectedItemId(null); }}/> : <Suspense fallback={<div className="studio-preview-loading" role="status">Opening 3D preview…<button onClick={() => setMode("plan")}>Back to floor plan</button></div>}><Viewport ref={viewer} config={config} request={request} selectedId={selectedItemId} onSelect={setSelectedItemId} onLayoutChange={updateLayout} onFocus={focus} onOpenPlan={() => setMode("plan")} onToggleDoor={toggleDoor}/></Suspense>}
     </div>
   );
 }

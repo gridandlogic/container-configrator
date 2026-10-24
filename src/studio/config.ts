@@ -40,6 +40,7 @@ export type FloorFinish =
   | "dark-walnut"
   | "warm-wood";
 export type Category =
+  | "washroom"
   | "container"
   | "layout"
   | "exterior"
@@ -68,6 +69,21 @@ export type CameraFocus =
   | "door-right";
 export interface StudioConfig {
   size: 20 | 40;
+  lengthFt?: number;
+  widthFt?: number;
+  catalogId?: string;
+  activeFloor?: 0 | 1;
+  cladding?: "steel" | "cedar" | "panel";
+  roofProfile?: "flat" | "gable" | "shed";
+  roofColor?: string;
+  frameColor?: string;
+  canopy?: boolean;
+  terraceFt?: number;
+  solar?: boolean;
+  detailedModels?: boolean;
+  doorPositionFt?: number;
+  windowPositionFt?: number;
+  washroom?: { shower: boolean; toilet: "western" | "squat"; tile: string; fixtures: "chrome" | "black"; door: "sliding" | "hinged" };
   containers: 1 | 2;
   buildingType: BuildingType;
   foldoutState: "expanded" | "transport";
@@ -91,6 +107,12 @@ export interface StudioConfig {
   layout: LayoutItem[];
 }
 export const DEFAULT_CONFIG: StudioConfig = {
+  cladding: "steel",
+  roofProfile: "flat",
+  roofColor: "#30383d",
+  frameColor: "#202628",
+  detailedModels: false,
+  washroom: { shower: true, toilet: "western", tile: "#d5d6d1", fixtures: "chrome", door: "sliding" },
   size: 40,
   containers: 1,
   buildingType: "standard",
@@ -195,8 +217,8 @@ export const FLOORS: { id: FloorFinish; name: string; note: string }[] = [
 ];
 export function containerDimensions(config: StudioConfig) {
   return {
-    length: config.size === 20 ? 6.058 : 12.192,
-    width: 2.438 * config.containers,
+    length: config.lengthFt ? config.lengthFt * 0.3048 : config.size === 20 ? 6.058 : 12.192,
+    width: (config.widthFt ? config.widthFt * 0.3048 : 2.438) * config.containers,
     height: config.highCube ? 2.896 : 2.591,
     base: 0.18,
     floor: 0.32,
@@ -210,6 +232,7 @@ export function dimensions(config: StudioConfig) {
       width: config.foldoutState === "transport" ? 2.438 : 7.314,
     };
   }
+  if (config.catalogId === "courtyard") return base;
   if (config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u") {
     return {
       ...base,
@@ -230,7 +253,13 @@ export function configReducer(
   config: StudioConfig,
   patch: Partial<StudioConfig>,
 ) {
-  return { ...config, ...patch };
+  const next = { ...config, ...patch };
+  // Fold-out mechanisms and the original courtyard kit use eight-foot modules.
+  if (next.buildingType === "foldout-home" || ((next.buildingType === "courtyard-l" || next.buildingType === "courtyard-u") && next.catalogId !== "courtyard")) {
+    next.widthFt = 8;
+    next.containers = 1;
+  }
+  return next;
 }
 export interface CameraRequest {
   focus: CameraFocus;

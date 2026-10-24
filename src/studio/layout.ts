@@ -9,12 +9,13 @@ export type ItemKind =
   | "desk"
   | "storage"
   | "partition";
-export interface EntryClearance { side: "left" | "right"; width: number; containerWidth: number; }
-export const entryClearance = (doorStyle: string, doorSide: "left" | "right", length: number, containerWidth = 2.438): EntryClearance | undefined =>
+export interface EntryClearance { side: "left" | "right"; width: number; containerWidth: number; x?: number; }
+export const entryClearance = (doorStyle: string, doorSide: "left" | "right", length: number, containerWidth = 2.438, positionFt?: number): EntryClearance | undefined =>
   doorStyle === "none" ? undefined : {
     side: doorSide,
     width: doorStyle === "personnel" ? 0.914 : Math.min(doorStyle === "vinyl" ? 2.438 : 1.83, length * 0.33),
     containerWidth,
+    x: positionFt === undefined ? length * .27 : positionFt * .3048,
   };
 
 export interface LayoutItem {
@@ -25,6 +26,9 @@ export interface LayoutItem {
   rotation: 0 | 90 | 180 | 270;
   wallLength?: number;
   onTopOf?: string;
+  width?: number;
+  depth?: number;
+  floor?: 0 | 1;
 }
 
 export type LayoutPreset =
@@ -55,7 +59,8 @@ export const ITEM_CATALOG: { kind: ItemKind; label: string; width: number; depth
 
 export const catalogItem = (kind: ItemKind) => ITEM_CATALOG.find((item) => item.kind === kind)!;
 export const footprint = (item: LayoutItem) => {
-  const { width, depth: catalogDepth } = catalogItem(item.kind);
+  const source = catalogItem(item.kind);
+  const width = item.width ?? source.width, catalogDepth = item.depth ?? source.depth;
   const depth = item.kind === "partition" ? Math.max(0.8, item.wallLength ?? catalogDepth) : catalogDepth;
   return item.rotation % 180 === 90 ? { width: depth, depth: width } : { width, depth };
 };
@@ -70,7 +75,7 @@ export function resolvePlacement(item: LayoutItem, others: LayoutItem[], length:
   const { width, depth } = footprint(candidate);
   if (Math.abs(candidate.x) + width / 2 > length / 2 - 0.099 || Math.abs(candidate.z) + depth / 2 > containerWidth / 2 - 0.099) return null;
   if (entry && blocksEntry(candidate, length, entry)) return null;
-  if (others.some((other) => other.id !== candidate.id && overlaps(candidate, other))) return null;
+  if (others.some((other) => other.id !== candidate.id && (other.floor ?? 0) === (candidate.floor ?? 0) && overlaps(candidate, other))) return null;
   return candidate;
 }
 export function nearestFreePlacement(item: LayoutItem, others: LayoutItem[], length: number, entry?: EntryClearance, containerWidth = 2.438): LayoutItem | null {
@@ -100,14 +105,14 @@ export function correctOverlaps(layout: LayoutItem[], length: number, entry?: En
   }
   return corrected;
 }
-export const windowPosition = (length: number, layout: LayoutItem[]) =>
-  length < 7 && layout.some((item) => item.kind === "bathroom" && item.x < 0)
+export const windowPosition = (length: number, layout: LayoutItem[], positionFt?: number) =>
+  positionFt !== undefined ? positionFt * .3048 : length < 7 && layout.some((item) => item.kind === "bathroom" && item.x < 0)
     ? -0.45
     : -length * 0.26;
 
 export function blocksEntry(item: LayoutItem, length: number, entry: EntryClearance) {
   const { width, depth } = footprint(item);
-  const doorX = length * 0.27;
+  const doorX = entry.x ?? length * 0.27;
   const doorZ = entry.side === "left" ? entry.containerWidth / 2 - 0.38 : -entry.containerWidth / 2 + 0.38;
   return Math.abs(item.x - doorX) < (width + entry.width + 0.1) / 2 &&
     Math.abs(item.z - doorZ) < (depth + 0.76) / 2;

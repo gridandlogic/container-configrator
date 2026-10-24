@@ -2,9 +2,11 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { LayoutItem, catalogItem } from "./layout";
 import { StudioAssets } from "./assets";
+import type { StudioConfig } from "./config";
+import { CATALOG, roomZones } from "./catalog";
 
 /** Lightweight built-ins shared by the plan and 3D studio. Dimensions are metres. */
-export function buildInterior(layout: LayoutItem[], floorY: number) {
+export function buildInterior(layout: LayoutItem[], floorY: number, config?: StudioConfig) {
   const root = new THREE.Group();
   root.name = "Interior layout";
   if (!layout.length) return root;
@@ -16,11 +18,11 @@ export function buildInterior(layout: LayoutItem[], floorY: number) {
   const cushion = material("#d2d1c9", 0.96);
   const white = material("#eeeae2");
   const porcelain = material("#fafaf7", 0.25);
-  const metal = material("#858c89", 0.32, 0.62);
+  const metal = material(config?.washroom?.fixtures === "black" ? "#24292a" : "#858c89", 0.32, 0.62);
   const glass = new THREE.MeshPhysicalMaterial({ color: "#cde6e7", roughness: 0.08, metalness: 0, transmission: 0.82, transparent: true, opacity: 0.52, thickness: 0.008, side: THREE.DoubleSide });
   const dark = material("#2e3737", 0.62);
-  const floorTile = material("#d5d6d1", 0.72);
-  const featureTile = material("#57666a", 0.48, 0.06);
+  const floorTile = material(config?.washroom?.tile ?? "#d5d6d1", 0.72);
+  const featureTile = material(config?.washroom?.tile ?? "#57666a", 0.48, 0.06);
   const warmLight = new THREE.MeshStandardMaterial({ color: "#fff0cf", emissive: "#ffd89b", emissiveIntensity: 1.2, roughness: 0.35 });
 
   const box = (group: THREE.Group, w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
@@ -54,12 +56,26 @@ export function buildInterior(layout: LayoutItem[], floorY: number) {
     for (const x of [-width / 2 + 0.09, width / 2 - 0.09]) for (const z of [-depth / 2 + 0.08, depth / 2 - 0.08]) leg(group, x, z, height - 0.03);
   };
 
-  for (const item of layout) {
+  const design = CATALOG.find((design) => design.id === config?.catalogId);
+  if (design && design.id !== "courtyard") {
+    const zones = roomZones(design, config?.activeFloor ?? 0);
+    const halfLength = design.length * .3048 / 2;
+    for (const zone of zones.filter((zone) => zone.name.includes("Bedroom"))) {
+      const x = zone.x < 0 ? zone.x + zone.w / 2 : zone.x - zone.w / 2;
+      if (Math.abs(x) >= halfLength - .05) continue;
+      const doorway = .85;
+      const wall = zone.d - doorway - .22;
+      box(root, .085, 2.2, wall, x, 1.1, zone.z - (doorway + .22) / 2, white);
+      box(root, .085, .18, doorway, x, 2.11, zone.z + zone.d / 2 - doorway / 2 - .11, white);
+    }
+  }
+  for (const item of layout.filter((item) => (item.floor ?? 0) === (config?.activeFloor ?? 0))) {
     const group = new THREE.Group();
     group.name = `${item.kind}-${item.id}`;
     group.userData.layoutItemId = item.id;
     group.position.set(item.x, 0, item.z);
     group.rotation.y = item.rotation * Math.PI / 180;
+    if (item.width || item.depth) { const original = catalogItem(item.kind); group.scale.set((item.width ?? original.width) / original.width, 1, (item.depth ?? original.depth) / original.depth); }
     root.add(group);
     switch (item.kind) {
       case "bathroom": {
@@ -68,16 +84,23 @@ export function buildInterior(layout: LayoutItem[], floorY: number) {
         box(group, 0.08, 2.2, 0.79, partitionX, 1.1, -0.695, white);
         box(group, 0.08, 2.2, 0.59, partitionX, 1.1, 0.795, white);
         box(group, 0.08, 0.14, 0.8, partitionX, 2.13, 0.1, white);
+        const bathDoor = box(group, .045, 1.96, .72, partitionX, .99, .08, timber);
+        if (config?.washroom?.door === "hinged") { bathDoor.rotation.y = -.8; bathDoor.position.x += .26; }
+        else { bathDoor.position.z -= .46; }
+        box(group, .08, .11, .025, partitionX + .035, 1.03, .27, metal);
         // Full-height tile, walk-in shower and clear return glass.
         box(group, 1.42, 2.08, 0.035, 0, 1.05, -1.055, featureTile);
         for (let x = -0.66; x <= 0.66; x += 0.22) box(group, 0.008, 2.02, 0.008, x, 1.05, -1.078, metal);
         for (let y = 0.22; y <= 1.94; y += 0.22) box(group, 1.35, 0.008, 0.008, 0, y, -1.078, metal);
+        const showerParts = group.children.length;
         rounded(group, 0.72, 0.065, 0.78, -0.32, 0.07, -0.64, porcelain, 0.025);
         box(group, 0.025, 1.65, 0.78, 0.05, 0.91, -0.64, glass);
         box(group, 0.025, 1.65, 0.46, 0.4, 0.91, -0.79, glass);
         box(group, 0.035, 0.8, 0.035, -0.59, 1.42, -0.88, metal);
         cylinder(group, 0.11, 0.035, -0.59, 1.82, -0.88, metal, 0.35).rotation.z = Math.PI / 2;
         for (const x of [-0.48, -0.35, -0.22, -0.09]) box(group, 0.01, 0.72, 0.01, x, 1.39, -0.88, glass);
+        if (config?.washroom?.shower === false) group.children.slice(showerParts).forEach((part) => { part.visible = false; });
+        const wcStart = group.children.length;
         // Rounded wall-hung toilet, vanity, vessel basin and illuminated mirror.
         rounded(group, 0.4, 0.32, 0.5, -0.22, 0.24, 0.35, porcelain, 0.11);
         const bowl = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.035, 10, 28), porcelain);
@@ -86,6 +109,12 @@ export function buildInterior(layout: LayoutItem[], floorY: number) {
         bowl.position.set(-0.22, floorY + 0.42, 0.34);
         bowl.castShadow = true;
         group.add(bowl);
+        if (config?.washroom?.toilet === "squat") {
+          group.children.slice(wcStart).forEach((part) => { part.visible = false; });
+          rounded(group, .44, .045, .62, -.22, .055, .35, porcelain, .07);
+          rounded(group, .18, .008, .34, -.22, .081, .35, dark, .06);
+          for (const x of [-.39, -.05]) rounded(group, .10, .03, .35, x, .09, .35, floorTile, .03);
+        }
         box(group, 0.32, 0.49, 0.24, -0.55, 0.3, 0.87, timber);
         box(group, 0.33, 0.04, 0.26, -0.55, 0.57, 0.87, porcelain);
         cylinder(group, 0.11, 0.055, -0.55, 0.61, 0.87, porcelain, 0.72);

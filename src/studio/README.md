@@ -76,5 +76,26 @@ engineering drawing. Oversized glazing is fitted within the selected shell.
   it with the keyboard were checked in the browser.
 - No browser console errors were observed in those flows.
 
-Glass transmission adds rendering passes. These checks establish behavior in
-the development browser; they are not a benchmark across physical devices.
+## Catalog configuration and fast startup
+
+The active planner now includes 17 office and living presets based on the supplied
+design collection. Nominal lengths and widths are editable in feet. Each preset
+sets its own facade colour, cladding, roof profile, room zones and floor layouts.
+Two-storey designs provide separate ground and upper floor plans. Existing Grid &
+Logic branding and product details are preserved.
+
+Washrooms can be moved, rotated and resized in the plan. Toilet type, shower,
+door type, tile colour and fixture finish update the procedural model. Entrance
+and window positions are adjustable, with entry clearance checked during placement.
+
+The floor planner starts without importing Three.js or preloading furniture and
+textures. The 3D viewer is a separate lazy chunk. Procedural furniture is available
+immediately; detailed external models load only when enabled. Textures and lighting
+refine the preview in the background instead of blocking editing. Glazing uses a
+lightweight transparent material to avoid a transmission render pass.
+
+Run `node scripts/check-catalog.mjs` to check all preset dimensions, both floors,
+washroom bounds, entry clearances, and 34 roof/cutaway 3D assemblies. The production
+planner reached its ready marker at 852 ms in one local browser check. This is not
+a guarantee for other devices or networks. The marker is exposed as the
+`data-plan-ready-ms` attribute on the HTML element.

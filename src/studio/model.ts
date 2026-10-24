@@ -21,14 +21,14 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     name: "painted-steel",
     color: config.color,
     roughness: 0.7,
-    metalness: 0.24,
+    metalness: config.cladding === "cedar" ? 0 : 0.24,
     bumpMap: assets.paintTexture(),
     bumpScale: 0.0006,
     roughnessMap: assets.paintTexture(),
     side: THREE.DoubleSide,
   });
   const frame = new THREE.MeshStandardMaterial({
-    color: "#202628",
+    color: config.frameColor ?? "#202628",
     roughness: 0.38,
     metalness: 0.7,
   });
@@ -52,9 +52,9 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     metalness: 0,
     // Roughness selects blurred transmission mip levels. Polished panes use zero.
     roughness: 0,
-    transmission: 1,
-    transparent: false,
-    opacity: 1,
+    transmission: 0,
+    transparent: true,
+    opacity: 0.22,
     thickness: 0.006,
     ior: 1.52,
     envMapIntensity: 1,
@@ -183,7 +183,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
       ? 0.914
       : Math.min(config.doorStyle === "vinyl" ? 2.438 : 1.83, L * 0.33);
   const doorH = Math.min(2.134, H - 0.34),
-    doorX = L * 0.27;
+    doorX = config.doorPositionFt === undefined ? L * .27 : config.doorPositionFt * .3048;
   const frameOpening = (
     wall: THREE.Group,
     o: Opening,
@@ -270,7 +270,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     root.add(wall);
     const translated = openings.map((o) => ({ ...o, y: o.y - F }));
     const exterior = new THREE.Mesh(
-      corrugatedWall(width, height, translated),
+      corrugatedWall(width, height, translated, config.cladding === "panel" ? 0 : config.cladding === "cedar" ? .006 : .025, config.cladding === "cedar" ? .14 : .27),
       paint,
     );
     exterior.castShadow = true;
@@ -421,7 +421,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
       (config.windowSide === side || config.windowSide === "both")
     )
       openings.push({
-        x: windowPosition(L, config.layout) * sign,
+        x: windowPosition(L, config.layout, config.windowPositionFt) * sign,
         y: windowY,
         width: windowW,
         height: windowH,
@@ -475,7 +475,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
   cargo.position.set(L / 2 + 0.016, F, 0);
   cargo.rotation.y = Math.PI / 2;
   root.add(cargo);
-  const bayWidth = 2.438;
+  const bayWidth = W / config.containers;
   const leafWidth = (bayWidth - 0.23) / 2,
     leafHeight = H + B - F - 0.12;
   for (const bay of config.containers === 2 ? [-bayWidth / 2, bayWidth / 2] : [0])
@@ -533,10 +533,11 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     for (const y of [0.28, 0.82, 1.45, leafHeight - 0.25])
       box(hinge, 0.12, 0.06, 0.085, sign * 0.014, y, 0.047, chrome, true);
   }
-  if (!config.cutaway) {
+  const roofMaterial = new THREE.MeshStandardMaterial({ color: config.roofColor ?? "#30383d", roughness: .62, metalness: .3, side: THREE.DoubleSide });
+  if (!config.cutaway && (!config.roofProfile || config.roofProfile === "flat")) {
     const roof = new THREE.Mesh(
       corrugatedWall(L - 0.12, W - 0.12, [], 0.012),
-      paint,
+      roofMaterial,
     );
     roof.rotation.x = -Math.PI / 2;
     roof.position.set(0, B + H - 0.045, (W - 0.12) / 2);
@@ -604,7 +605,33 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
       white,
     );
   }
-  if (includeInterior) root.add(buildInterior(config.layout, F));
+  if (!config.cutaway && config.roofProfile && config.roofProfile !== "flat") {
+    const rise = config.roofProfile === "gable" ? .65 : .48;
+    const half = W / 2 + .22;
+    if (config.roofProfile === "gable") {
+      for (const sign of [-1, 1]) {
+        const panel = box(root, L + .35, .09, Math.hypot(half, rise), 0, B + H + rise / 2, sign * half / 2, roofMaterial);
+        panel.rotation.x = sign * Math.atan2(rise, half);
+      }
+    } else {
+      const panel = box(root, L + .35, .09, Math.hypot(W + .4, rise), 0, B + H + rise / 2, 0, roofMaterial);
+      panel.rotation.x = Math.atan2(rise, W + .4);
+    }
+  }
+  if (config.canopy) box(root, Math.min(L - .25, 4.2), .10, 1.0, L * .17, B + H - .12, W / 2 + .42, roofMaterial);
+  if ((config.terraceFt ?? 0) > 0) {
+    const depth = config.terraceFt! * .3048;
+    box(root, depth, .14, W, L / 2 + depth / 2, F - .08, 0, floorMaterial);
+    for (const z of [-W / 2 + .1, W / 2 - .1]) box(root, .09, H - .15, .09, L / 2 + depth - .12, F + H / 2 - .1, z, frame);
+    for (let x = .12; x < depth; x += .32) box(root, .07, .07, W, L / 2 + x, B + H, 0, frame);
+  }
+  if (config.solar && !config.cutaway) {
+    const solarMat = new THREE.MeshStandardMaterial({ color: "#1d344c", metalness: .5, roughness: .2 });
+    for (const x of [-L * .25, 0, L * .25]) {
+      const panel = box(root, L * .20, .045, W * .7, x, B + H + .15, 0, solarMat); panel.rotation.x = -.12;
+    }
+  }
+  if (includeInterior) root.add(buildInterior(config.layout, F, config));
   // Static fittings and shell sections share one draw call per material.
   root.updateMatrixWorld(true);
   const batches = new Map<THREE.Material, THREE.Mesh[]>();
@@ -684,8 +711,8 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
 
   const assembly = new THREE.Group();
   assembly.name = "Architectural container assembly";
-  const moduleWidth = 2.438;
-  const mainLength = config.size === 20 ? 6.058 : 12.192;
+  const moduleWidth = (config.widthFt ?? 8) * .3048;
+  const mainLength = containerDimensions(config).length;
   const moduleHeight = config.highCube ? 2.896 : 2.591;
   const floorY = 0.32;
   const paints: THREE.MeshStandardMaterial[] = [];
@@ -696,8 +723,9 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
     y: number,
     z: number,
     rotation = 0,
+    overrides: Partial<StudioConfig> = {},
   ) => {
-    const unit = buildContainerUnit({ ...unitConfig, size }, assets, false);
+    const unit = buildContainerUnit({ ...unitConfig, size, lengthFt: size === 20 && config.buildingType.startsWith("courtyard") ? undefined : config.lengthFt, ...overrides }, assets, false);
     unit.position.set(x, y, z);
     unit.rotation.y = rotation;
     assembly.add(unit);
@@ -718,7 +746,12 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
     return mesh;
   };
 
-  if (config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u") {
+  if (config.catalogId === "courtyard") {
+    addUnit(40, 0, 0, -6 * .3048, 0, { widthFt: 12 });
+    for (const sign of [-1,1]) addUnit(20, sign * 15 * .3048, 0, 6 * .3048, Math.PI / 2, { lengthFt: 12, widthFt: 10 });
+    addBox(20 * .3048, .10, 12 * .3048, 0, .12, 6 * .3048, timber, "Open courtyard deck");
+    assembly.add(buildInterior(config.layout, floorY, config));
+  } else if (config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u") {
     const wingLength = 6.058;
     const backZ = -wingLength / 2;
     const wingZ = moduleWidth / 2;
@@ -734,10 +767,14 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
       for (const z of [-1.45, 3.65]) addBox(0.09, 2.35, 0.09, x, 1.2, z, timber);
     }
     for (let i = 0; i < 8; i++) addBox(courtyardWidth - 0.35, 0.07, 0.11, deckX, 2.34, -1.4 + i * 0.72, timber);
-    assembly.add(buildInterior(config.layout, floorY));
+    assembly.add(buildInterior(config.layout, floorY, config));
   } else if (config.buildingType === "stacked-office") {
     addUnit(config.size, 0, 0, 0);
-    addUnit(config.size, mainLength * 0.1, moduleHeight + 0.08, 0);
+    const upper = addUnit(config.size, 0, moduleHeight + 0.08, 0);
+    if (config.cutaway) upper.visible = false;
+    const interior = buildInterior(config.layout, floorY, config);
+    if ((config.activeFloor ?? 0) === 1 && !config.cutaway) interior.position.y = moduleHeight + .08;
+    assembly.add(interior);
     const stairX = -mainLength * 0.26;
     const stairZ = moduleWidth / 2 + 0.72;
     const steps = 12;
@@ -747,13 +784,12 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
     }
     for (const side of [-0.46, 0.46]) addBox(0.045, moduleHeight + 0.4, 0.045, stairX + side, moduleHeight / 2 + 0.3, stairZ, steel);
     addBox(mainLength * 0.34, 0.12, 1.15, mainLength * 0.24, moduleHeight + 0.14, moduleWidth / 2 + 0.58, timber, "Upper office balcony");
-    assembly.add(buildInterior(config.layout, floorY));
   } else if (config.buildingType === "foldout-home") {
     addUnit(config.size, 0, 0, 0);
     if (config.foldoutState === "expanded") {
       addUnit(config.size, 0, 0, -moduleWidth);
       addUnit(config.size, 0, 0, moduleWidth);
-      assembly.add(buildInterior(config.layout, floorY));
+      assembly.add(buildInterior(config.layout, floorY, config));
       for (const x of [-mainLength / 2 + 0.8, mainLength / 2 - 0.8]) {
         for (const z of [-moduleWidth * 1.46, moduleWidth * 1.46]) {
           addBox(0.09, 0.52, 0.09, x, 0.25, z, steel, "Fold-out stabilizer");

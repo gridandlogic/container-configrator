@@ -38,7 +38,7 @@ export class StudioCamera {
       } = dimensions(config),
       V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
     const fit = Math.max(1, 1 / this.camera.aspect),
-      distance = Math.max(10.8, L * 1.5) * fit;
+      distance = Math.max(10.8, L * 1.5, W * 1.8) * fit;
     const openingPose = (kind: "window" | "door", sign: number): Pose => {
       const window = WINDOWS.find(
         (option) => option.id === config.windowStyle,
@@ -50,7 +50,7 @@ export class StudioCamera {
           : h > 1.8
             ? F + h / 2 + 0.035
             : Math.min(B + H - 0.3 - h / 2, F + 1.05 + h / 2);
-      const x = kind === "window" ? windowPosition(L, config.layout) : L * 0.27;
+      const x = kind === "window" ? windowPosition(L, config.layout, config.windowPositionFt) : config.doorPositionFt === undefined ? L * .27 : config.doorPositionFt * .3048;
       const distance =
         kind === "window"
           ? Math.max(3, Math.min(window.w, L * 0.32) * 1.6)
