@@ -8,8 +8,10 @@ export type ItemKind =
   | "bed"
   | "desk"
   | "storage"
+  | "tv-console"
+  | "nightstand"
   | "partition";
-export interface EntryClearance { side: "left" | "right"; width: number; containerWidth: number; x?: number; }
+export interface EntryClearance { side: "left" | "right"; width: number; containerWidth: number; x?: number; z?: number; }
 export const entryClearance = (doorStyle: string, doorSide: "left" | "right", length: number, containerWidth = 2.438, positionFt?: number): EntryClearance | undefined =>
   doorStyle === "none" ? undefined : {
     side: doorSide,
@@ -29,6 +31,7 @@ export interface LayoutItem {
   width?: number;
   depth?: number;
   floor?: 0 | 1;
+  entryWall?: "front" | "left" | "right";
 }
 
 export type LayoutPreset =
@@ -52,7 +55,9 @@ export const ITEM_CATALOG: { kind: ItemKind; label: string; width: number; depth
   { kind: "coffee-table", label: "Coffee table", width: 0.72, depth: 0.48, group: "Furniture" },
   { kind: "dining-table", label: "Dining table", width: 1.05, depth: 0.68, group: "Furniture" },
   { kind: "chair", label: "Chair", width: 0.52, depth: 0.52, group: "Furniture" },
-  { kind: "bed", label: "Double bed", width: 1.9, depth: 1.38, group: "Furniture" },
+  { kind: "bed", label: "Double bed", width: 1.45, depth: 2.03, group: "Furniture" },
+  { kind: "tv-console", label: "TV console", width: 1.2, depth: 0.32, group: "Furniture" },
+  { kind: "nightstand", label: "Bedside table", width: 0.38, depth: 0.38, group: "Furniture" },
   { kind: "desk", label: "Work desk", width: 1.2, depth: 0.58, group: "Furniture" },
   { kind: "storage", label: "Storage cabinet", width: 0.95, depth: 0.45, group: "Furniture" },
 ];
@@ -113,7 +118,8 @@ export const windowPosition = (length: number, layout: LayoutItem[], positionFt?
 export function blocksEntry(item: LayoutItem, length: number, entry: EntryClearance) {
   const { width, depth } = footprint(item);
   const doorX = entry.x ?? length * 0.27;
-  const doorZ = entry.side === "left" ? entry.containerWidth / 2 - 0.38 : -entry.containerWidth / 2 + 0.38;
+  const boundary = entry.z ?? (entry.side === "left" ? entry.containerWidth / 2 : -entry.containerWidth / 2);
+  const doorZ = boundary + (entry.side === "left" ? -.38 : .38);
   return Math.abs(item.x - doorX) < (width + entry.width + 0.1) / 2 &&
     Math.abs(item.z - doorZ) < (depth + 0.76) / 2;
 }
@@ -169,14 +175,18 @@ export function presetLayout(preset: LayoutPreset, length: number, containerWidt
     const backZ = -containerWidth / 2 + 1.22;
     const items = [
       make("kitchenette", -1.35, backZ - 0.64),
-      make("dining-table", 0.75, backZ, 90),
-      make("sofa", 2.55, backZ, 180),
+      make("dining-table", 0.2, backZ, 90),
+      make("sofa", 2.55, backZ - .6, 180),
+      make("coffee-table", 2.55, backZ + .25),
+      make("tv-console", 2.55, backZ + .95),
+      make("chair", -.65, backZ, 270),
+      make("chair", 1.05, backZ, 90),
       make("bed", -wingX, -0.25, 90),
-      make("bathroom", -wingX, 2.05),
+      make("bathroom", -wingX, 3.05),
       make("storage", -wingX, -2.35, 90),
     ];
     if (preset === "courtyard-home") items.push(
-      make("bed", wingX, -0.25, 90),
+      make("bed", wingX, -0.25, 270),
       make("desk", wingX, 1.55, 90),
       make("chair", wingX, 2.5, 90),
     );
@@ -186,10 +196,19 @@ export function presetLayout(preset: LayoutPreset, length: number, containerWidt
     make("bathroom", edge, 0),
     make("kitchenette", edge + 1.75, -0.72),
     make("dining-table", -0.25, 0),
-    make("sofa", 1.7, -2.55),
-    make("coffee-table", 1.7, -1.55),
-    make("bed", length / 2 - 1.3, 2.55),
-    make("storage", length / 2 - 0.65, 1.35, 90),
+    make("sofa", 1.7, -3.05, 180),
+    make("coffee-table", 1.7, -2.05),
+    make("bed", length / 2 - 1.3, 2.45, 270),
+    make("bed", -length / 2 + 1.3, 2.45, 90),
+    make("storage", -3.2, 3.1, 180),
+    make("desk", -4.3, -3.1, 180),
+    make("chair", -4.3, -2.35),
+    make("storage", 3.2, 3.1, 180),
+    make("chair", -1.2, 0, 270),
+    make("chair", .8, 0, 90),
+    make("chair", -.2, -.8, 180),
+    make("chair", -.2, .8),
+    make("tv-console", 1.7, -.55),
   ];
   if (preset === "work") return [
     bathroom,

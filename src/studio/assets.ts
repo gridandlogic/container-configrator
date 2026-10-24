@@ -1,6 +1,4 @@
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 
 const BASE = "/container-configurator";
 const INTERIOR_MODELS: Record<string, string> = {
@@ -18,8 +16,8 @@ function interiorSource(key: string) {
   const path = INTERIOR_MODELS[key];
   if (!path) return Promise.reject(new Error(`Unknown interior model: ${key}`));
   if (!interiorSources.has(key)) {
-    const promise = new GLTFLoader()
-      .loadAsync(`${BASE}/models/polyhaven/${path}`)
+    const promise = import("three/examples/jsm/loaders/GLTFLoader.js")
+      .then(({ GLTFLoader }) => new GLTFLoader().loadAsync(`${BASE}/models/polyhaven/${path}`))
       .then((gltf) => gltf.scene)
       .catch((error) => {
         interiorSources.delete(key);
@@ -158,9 +156,12 @@ export class StudioAssets {
     });
   }
   async environment(renderer: THREE.WebGLRenderer) {
+    const { HDRLoader } = await import("three/examples/jsm/loaders/HDRLoader.js");
+    if (this.disposed) return null;
     const hdr = await new HDRLoader().loadAsync(
       BASE + "/environment/overcast-1k.hdr",
     );
+    if (this.disposed) { hdr.dispose(); return null; }
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environment = pmrem.fromEquirectangular(hdr).texture;
     hdr.dispose();
@@ -175,10 +176,9 @@ export class StudioAssets {
     if (!this.models.has(kind))
       this.models.set(
         kind,
-        new GLTFLoader()
-          .loadAsync(
+        import("three/examples/jsm/loaders/GLTFLoader.js").then(({ GLTFLoader }) => new GLTFLoader().loadAsync(
             `${BASE}/models/ac/${kind === "indoor" ? "indoor-split" : "outdoor-condenser"}.glb`,
-          )
+          ))
           .then((gltf) => {
             const root = gltf.scene;
             if (this.disposed) {

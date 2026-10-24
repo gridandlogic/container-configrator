@@ -6,10 +6,13 @@ import { StudioAssets } from "./assets";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { buildInterior } from "./interior";
 import { windowPosition } from "./layout";
+import { optimizeModel } from "./optimize";
+import { facadeWindows } from "./openings";
 
-function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeInterior = true) {
+function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeInterior = true, shell: { openSides?: ("left" | "right")[]; converted?: boolean } = {}) {
   const root = new THREE.Group();
   root.name = "ISO container";
+  const converted = shell.converted ?? (Boolean(config.catalogId) || config.buildingType !== "standard" || config.layout.length > 0);
   const {
     length: L,
     width: W,
@@ -81,7 +84,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
               w,
               h,
               d,
-              2,
+              1,
               Math.min(0.008, w / 5, h / 5, d / 5),
             )
           : new THREE.BoxGeometry(w, h, d),
@@ -122,6 +125,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
   hole.absellipse(0, 0, 0.035, 0.023, 0, Math.PI * 2, true, 0);
   castingShape.holes.push(hole);
   const castingGeometry = new THREE.ExtrudeGeometry(castingShape, {
+    curveSegments: 6,
     depth: 0.162,
     bevelEnabled: true,
     bevelSize: 0.003,
@@ -130,14 +134,15 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     steps: 1,
   });
   castingGeometry.translate(0, 0, -0.081);
+  const castings = new THREE.InstancedMesh(castingGeometry, paint, config.containers === 2 ? 12 : 8);
+  castings.name = "Instanced corner castings"; castings.castShadow = true; castings.receiveShadow = true;
+  const castingMatrix = new THREE.Matrix4(); let castingIndex = 0;
+  root.add(castings);
   for (const x of [-L / 2 + 0.05, L / 2 - 0.05])
     for (const z of config.containers === 2 ? [-W / 2 + 0.035, 0, W / 2 - 0.035] : [-W / 2 + 0.035, W / 2 - 0.035]) {
       box(root, 0.14, H - 0.1, 0.13, x, B + H / 2, z, paint, true);
       for (const y of [B + 0.045, B + H - 0.04]) {
-        const cast = new THREE.Mesh(castingGeometry, paint);
-        cast.position.set(x, y, z);
-        cast.castShadow = true;
-        root.add(cast);
+        castings.setMatrixAt(castingIndex++, castingMatrix.makeTranslation(x, y, z));
       }
       box(
         root,
@@ -183,7 +188,11 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
       ? 0.914
       : Math.min(config.doorStyle === "vinyl" ? 2.438 : 1.83, L * 0.33);
   const doorH = Math.min(2.134, H - 0.34),
-    doorX = config.doorPositionFt === undefined ? L * .27 : config.doorPositionFt * .3048;
+    doorX = Math.max(-L / 2 + doorW / 2 + .18, Math.min(L / 2 - doorW / 2 - .18, config.doorPositionFt === undefined ? L * .27 : config.doorPositionFt * .3048));
+  const movingPart = (object: THREE.Object3D, action: "side" | "cargo", property: "x" | "rotationY", closed: number, open: number) => {
+    object.userData.doorMotion = { action, property, closed, open };
+    return object;
+  };
   const frameOpening = (
     wall: THREE.Group,
     o: Opening,
@@ -334,7 +343,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
             : 2;
         const paneW = (o.width - 0.06) / panes;
         for (let i = 0; i < panes; i++) {
-          box(
+          const pane = box(
             moving,
             paneW - 0.025,
             o.height - 0.065,
@@ -343,9 +352,11 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
             o.y,
             i % 2 === 0 ? 0.021 : -0.003,
             glass,
-          ).castShadow = false;
-          if (i > 0)
-            box(
+          );
+          pane.castShadow = false;
+          if (o.kind === "door" && i === 1) movingPart(pane, "side", "x", pane.position.x + (config.sideDoorOpen ? paneW : 0), pane.position.x + (config.sideDoorOpen ? 0 : -paneW));
+          if (i > 0) {
+            const divider = box(
               moving,
               0.028,
               o.height - 0.04,
@@ -355,9 +366,12 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
               0.027,
               vinyl ? white : frame,
             );
+            if (o.kind === "door") movingPart(divider, "side", "x", divider.position.x + (config.sideDoorOpen ? paneW : 0), divider.position.x + (config.sideDoorOpen ? 0 : -paneW));
+          }
         }
         if (o.kind === "door") {
-          box(moving, 0.022, 0.21, 0.025, o.x + 0.05 + (config.sideDoorOpen ? -paneW : 0), o.y - 0.12, 0.073, frame);
+          const handle = box(moving, 0.022, 0.21, 0.025, o.x + 0.05 + (config.sideDoorOpen ? -paneW : 0), o.y - 0.12, 0.073, frame);
+          movingPart(handle, "side", "x", o.x + .05, o.x + .05 - paneW);
           for (const delta of [-0.02, 0.02])
             box(
               wall,
@@ -374,6 +388,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
         const hinge = new THREE.Group();
         hinge.position.x = o.x - o.width / 2 + 0.03;
         hinge.rotation.y = config.sideDoorOpen ? -Math.PI * 0.55 : 0;
+        movingPart(hinge, "side", "rotationY", 0, -Math.PI * .55);
         moving.add(hinge);
         box(
           hinge,
@@ -414,18 +429,16 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     return wall;
   };
   for (const side of ["left", "right"] as const) {
+    if (shell.openSides?.includes(side)) continue;
     const sign = side === "left" ? 1 : -1,
       openings: Opening[] = [];
     if (
       config.windowStyle !== "none" &&
       (config.windowSide === side || config.windowSide === "both")
     )
-      openings.push({
-        x: windowPosition(L, config.layout, config.windowPositionFt) * sign,
-        y: windowY,
-        width: windowW,
-        height: windowH,
-        kind: "window",
+      for (const opening of facadeWindows(config, L).filter((opening) => opening.side === side)) openings.push({
+        x: opening.x * sign, y: opening.privacy ? F + 2.12 : config.catalogId ? F + 1.55 : windowY,
+        width: opening.width, height: opening.privacy ? .35 : config.catalogId ? 1.0 : windowH, kind: "window",
       });
     if (config.doorStyle !== "none" && config.doorSide === side)
       openings.push({
@@ -446,6 +459,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     );
     sideWall.name = `container-side-wall-${side}`;
     sideWall.userData.cutawayWall = true;
+    if (config.cutaway && side === config.doorSide) sideWall.visible = false;
   }
   const rearOpening: Opening[] = config.rearRollup
     ? [{ x: 0, y: F + 1.05, width: 1.9, height: 2.1, kind: "roll-up" }]
@@ -467,7 +481,14 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
       for (let i = 0; i < 7; i++)
         box(rear, 0.26, 0.016, 0.025, x, H - 0.61 + i * 0.032, 0.091, rubber);
     }
-  // Original cargo doors: recessed corrugated leaves, weather seals, four locking bars.
+  if (converted) {
+    const end = addWall(W - .18, H + B - F - .075,
+      (config.terraceFt ?? 0) > 0 ? [{ x: 0, y: F + doorH / 2 + .025, width: .914, height: doorH, kind: "door" }] : config.windowStyle !== "none" ? [{ x: 0, y: F + 1.4, width: Math.min(1.3, W - .6), height: 1.0, kind: "window" }] : [],
+      L / 2 - .018, 0, Math.PI / 2, "side");
+    end.name = "Finished residential end wall";
+    end.userData.cutawayWall = true;
+  } else {
+  // Cargo hardware is retained only for an empty, original shipping shell.
   const cargo = new THREE.Group();
   cargo.name = "container-end-wall-cargo";
   cargo.userData.cutawayWall = true;
@@ -483,6 +504,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     const hinge = new THREE.Group();
     hinge.position.x = bay + sign * (bayWidth / 2 - 0.115);
     hinge.rotation.y = config.cargoOpen ? sign * Math.PI * 0.63 : 0;
+    movingPart(hinge, "cargo", "rotationY", 0, sign * Math.PI * .63);
     cargo.add(hinge);
     const center = (-sign * leafWidth) / 2;
     const leafGeometry = corrugatedWall(leafHeight, leafWidth, [], 0.025, 0.54);
@@ -533,6 +555,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
     for (const y of [0.28, 0.82, 1.45, leafHeight - 0.25])
       box(hinge, 0.12, 0.06, 0.085, sign * 0.014, y, 0.047, chrome, true);
   }
+  }
   const roofMaterial = new THREE.MeshStandardMaterial({ color: config.roofColor ?? "#30383d", roughness: .62, metalness: .3, side: THREE.DoubleSide });
   if (!config.cutaway && (!config.roofProfile || config.roofProfile === "flat")) {
     const roof = new THREE.Mesh(
@@ -563,7 +586,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
         sign * (W / 2 + 0.5 - i * 0.24),
         chrome,
       );
-    for (const x of [doorX - 0.6, doorX + 0.6])
+    for (const x of [doorX - doorW * .35, doorX + doorW * .35])
       box(root, 0.035, 0.28, 0.035, x, 0.14, sign * (W / 2 + 0.33), chrome);
   }
   if (config.lights) {
@@ -617,8 +640,27 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
       const panel = box(root, L + .35, .09, Math.hypot(W + .4, rise), 0, B + H + rise / 2, 0, roofMaterial);
       panel.rotation.x = Math.atan2(rise, W + .4);
     }
+    const gable = new THREE.Shape();
+    gable.moveTo(-W / 2, 0); gable.lineTo(W / 2, 0);
+    if (config.roofProfile === "gable") { gable.lineTo(0, rise); }
+    else { gable.lineTo(W / 2, rise); gable.lineTo(-W / 2, 0); }
+    gable.closePath();
+    for (const sign of [-1, 1]) {
+      const endShape = new THREE.ShapeGeometry(gable);
+      if (sign < 0 && config.roofProfile === "shed") endShape.scale(-1, 1, 1);
+      const cap = new THREE.Mesh(endShape, paint);
+      cap.position.set(sign * (L / 2 - .04), B + H - .035, 0);
+      cap.rotation.y = sign * Math.PI / 2;
+      cap.name = "Closed roof end"; cap.castShadow = true; root.add(cap);
+    }
+    const ceiling = new THREE.Mesh(physicalPlane(L - .2, W - .16), white);
+    ceiling.rotation.x = Math.PI / 2; ceiling.position.y = B + H - .085;
+    root.add(ceiling);
   }
-  if (config.canopy) box(root, Math.min(L - .25, 4.2), .10, 1.0, L * .17, B + H - .12, W / 2 + .42, roofMaterial);
+  if (config.canopy) {
+    const sign = config.doorSide === "left" ? 1 : -1;
+    box(root, Math.min(L - .25, 4.2), .10, 1.0, doorX, B + H - .12, sign * (W / 2 + .42), roofMaterial);
+  }
   if ((config.terraceFt ?? 0) > 0) {
     const depth = config.terraceFt! * .3048;
     box(root, depth, .14, W, L / 2 + depth / 2, F - .08, 0, floorMaterial);
@@ -702,7 +744,7 @@ function buildContainerUnit(config: StudioConfig, assets: StudioAssets, includeI
   return root;
 }
 
-export function buildContainer(config: StudioConfig, assets: StudioAssets) {
+function buildAssembly(config: StudioConfig, assets: StudioAssets) {
   if (["standard", "portable-office", "retail-kiosk"].includes(config.buildingType)) {
     const unit = buildContainerUnit(config, assets);
     unit.userData.paints = [unit.userData.paint];
@@ -724,8 +766,9 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
     z: number,
     rotation = 0,
     overrides: Partial<StudioConfig> = {},
+    openSides: ("left" | "right")[] = [],
   ) => {
-    const unit = buildContainerUnit({ ...unitConfig, size, lengthFt: size === 20 && config.buildingType.startsWith("courtyard") ? undefined : config.lengthFt, ...overrides }, assets, false);
+    const unit = buildContainerUnit({ ...unitConfig, size, lengthFt: size === 20 && config.buildingType.startsWith("courtyard") ? undefined : config.lengthFt, ...overrides }, assets, false, { openSides, converted: true });
     unit.position.set(x, y, z);
     unit.rotation.y = rotation;
     assembly.add(unit);
@@ -748,7 +791,7 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
 
   if (config.catalogId === "courtyard") {
     addUnit(40, 0, 0, -6 * .3048, 0, { widthFt: 12 });
-    for (const sign of [-1,1]) addUnit(20, sign * 15 * .3048, 0, 6 * .3048, Math.PI / 2, { lengthFt: 12, widthFt: 10 });
+    for (const sign of [-1,1]) addUnit(20, sign * 15 * .3048, 0, 6 * .3048, Math.PI / 2, { catalogId: undefined, lengthFt: 12, widthFt: 10, doorPositionFt: 0, doorSide: sign < 0 ? "left" : "right", steps: false, canopy: false, terraceFt: 0 });
     addBox(20 * .3048, .10, 12 * .3048, 0, .12, 6 * .3048, timber, "Open courtyard deck");
     assembly.add(buildInterior(config.layout, floorY, config));
   } else if (config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u") {
@@ -756,9 +799,9 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
     const backZ = -wingLength / 2;
     const wingZ = moduleWidth / 2;
     const wingX = mainLength / 2 - moduleWidth / 2;
-    addUnit(config.size, 0, 0, backZ);
-    addUnit(20, -wingX, 0, wingZ, Math.PI / 2);
-    if (config.buildingType === "courtyard-u") addUnit(20, wingX, 0, wingZ, Math.PI / 2);
+    addUnit(config.size, 0, 0, backZ, 0, { doorPositionFt: config.doorPositionFt ?? 0 });
+    addUnit(20, -wingX, 0, wingZ, Math.PI / 2, { doorPositionFt: 0, doorSide: "left", steps: false });
+    if (config.buildingType === "courtyard-u") addUnit(20, wingX, 0, wingZ, Math.PI / 2, { doorPositionFt: 0, doorSide: "right", steps: false });
     const courtyardWidth = config.buildingType === "courtyard-u" ? mainLength - moduleWidth * 2 : mainLength - moduleWidth;
     const deckX = config.buildingType === "courtyard-u" ? 0 : moduleWidth / 2;
     addBox(courtyardWidth - 0.28, 0.09, wingLength - 0.36, deckX, 0.13, wingZ, timber, "Courtyard deck");
@@ -769,30 +812,52 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
     for (let i = 0; i < 8; i++) addBox(courtyardWidth - 0.35, 0.07, 0.11, deckX, 2.34, -1.4 + i * 0.72, timber);
     assembly.add(buildInterior(config.layout, floorY, config));
   } else if (config.buildingType === "stacked-office") {
-    addUnit(config.size, 0, 0, 0);
-    const upper = addUnit(config.size, 0, moduleHeight + 0.08, 0);
-    if (config.cutaway) upper.visible = false;
+    addUnit(config.size, 0, 0, 0, 0, { activeFloor: config.cutaway ? config.activeFloor : 0 });
+    if (!config.cutaway) addUnit(config.size, 0, moduleHeight + .08, 0, 0, { activeFloor: 1, steps: false });
     const interior = buildInterior(config.layout, floorY, config);
     if ((config.activeFloor ?? 0) === 1 && !config.cutaway) interior.position.y = moduleHeight + .08;
     assembly.add(interior);
-    const stairX = -mainLength * 0.26;
-    const stairZ = moduleWidth / 2 + 0.72;
-    const steps = 12;
-    for (let i = 0; i < steps; i++) {
-      const rise = ((i + 1) / steps) * (moduleHeight + 0.08);
-      addBox(1.0, 0.12, 0.3, stairX + (i - steps / 2) * 0.27, rise, stairZ, steel);
+    if (!config.cutaway) {
+      const otherFloor = (config.activeFloor ?? 0) === 0 ? 1 : 0;
+      const fitted = buildInterior(config.layout, floorY, { ...config, activeFloor: otherFloor });
+      fitted.name = "Furnished additional storey";
+      fitted.position.y = otherFloor * (moduleHeight + .08); assembly.add(fitted);
     }
-    for (const side of [-0.46, 0.46]) addBox(0.045, moduleHeight + 0.4, 0.045, stairX + side, moduleHeight / 2 + 0.3, stairZ, steel);
-    addBox(mainLength * 0.34, 0.12, 1.15, mainLength * 0.24, moduleHeight + 0.14, moduleWidth / 2 + 0.58, timber, "Upper office balcony");
+    if (!config.cutaway) {
+    const landingX = config.doorPositionFt === undefined ? mainLength * .27 : config.doorPositionFt * .3048;
+    const balconySign = config.doorSide === "left" ? 1 : -1;
+    const stairZ = balconySign * (moduleWidth / 2 + .65);
+    const steps = 16, run = .28, top = moduleHeight + .08 + floorY;
+    const stairX = landingX - .85 - steps * run;
+    for (let i = 0; i < steps; i++) {
+      const rise = ((i + 1) / steps) * top;
+      addBox(.30, .08, 1.05, stairX + (i + .5) * run, rise - .04, stairZ, steel, "External stair tread");
+      for (const side of [-.49,.49]) {
+        addBox(.035, .92, .035, stairX + (i + .5) * run, rise + .46, stairZ + side, steel, "Stair baluster");
+        const rail = addBox(Math.hypot(run, top / steps) + .02, .04, .04, stairX + (i + .5) * run, rise + .92, stairZ + side, steel, "Stair handrail");
+        rail.rotation.z = Math.atan2(top / steps, run);
+      }
+    }
+    for (const side of [-.46,.46]) {
+      const stringer = addBox(Math.hypot(steps * run, top), .12, .065, stairX + steps * run / 2, top / 2 - .10, stairZ + side, steel, "Stair stringer");
+      stringer.rotation.z = Math.atan2(top, steps * run);
+    }
+    const landingLength = 2.1;
+    addBox(landingLength, .12, 1.22, landingX, top - .06, balconySign * (moduleWidth / 2 + .61), timber, "Upper floor entry landing");
+    for (const x of [landingX - .95, landingX, landingX + .95]) addBox(.045, 1.02, .045, x, top + .51, balconySign * (moduleWidth / 2 + 1.19), steel);
+    addBox(landingLength, .045, .045, landingX, top + 1.02, balconySign * (moduleWidth / 2 + 1.19), steel, "Balcony guard rail");
+    for (const x of [landingX - .95, landingX + .95]) addBox(.07, top, .07, x, top / 2, balconySign * (moduleWidth / 2 + 1.15), steel);
+    addBox(.045, .045, 1.19, landingX + 1.02, top + 1.02, balconySign * (moduleWidth / 2 + .61), steel, "Landing end guard rail");
+    }
   } else if (config.buildingType === "foldout-home") {
-    addUnit(config.size, 0, 0, 0);
+    addUnit(config.size, 0, 0, 0, 0, { doorStyle: "none", steps: false }, config.foldoutState === "expanded" ? ["left", "right"] : []);
     if (config.foldoutState === "expanded") {
-      addUnit(config.size, 0, 0, -moduleWidth);
-      addUnit(config.size, 0, 0, moduleWidth);
+      addUnit(config.size, 0, 0, -moduleWidth, 0, { doorStyle: "none", steps: false }, ["left"]);
+      addUnit(config.size, 0, 0, moduleWidth, 0, { doorSide: "left" }, ["right"]);
       assembly.add(buildInterior(config.layout, floorY, config));
       for (const x of [-mainLength / 2 + 0.8, mainLength / 2 - 0.8]) {
         for (const z of [-moduleWidth * 1.46, moduleWidth * 1.46]) {
-          addBox(0.09, 0.52, 0.09, x, 0.25, z, steel, "Fold-out stabilizer");
+          addBox(0.09, 0.27, 0.09, x, 0.16, z, steel, "Fold-out stabilizer");
           addBox(0.34, 0.05, 0.34, x, 0.025, z, concrete);
         }
       }
@@ -816,4 +881,20 @@ export function buildContainer(config: StudioConfig, assets: StudioAssets) {
   assembly.userData.paint = paints[0];
   assembly.userData.paints = paints;
   return assembly;
+}
+
+export function buildContainer(config: StudioConfig, assets: StudioAssets) {
+  return optimizeModel(buildAssembly(config, assets));
+}
+
+/** Change door transforms without rebuilding the shell or furniture. */
+export function updateDoorState(root: THREE.Group, config: StudioConfig) {
+  root.traverse((object) => {
+    const motion = object.userData.doorMotion;
+    if (!motion) return;
+    const value = (motion.action === "cargo" ? config.cargoOpen : config.sideDoorOpen) ? motion.open : motion.closed;
+    if (motion.property === "rotationY") object.rotation.y = value;
+    else object.position.x = value;
+  });
+  root.updateMatrixWorld(true);
 }

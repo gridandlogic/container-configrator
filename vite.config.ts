@@ -74,6 +74,8 @@ export default defineConfig(() => {
       rollupOptions: {
         output: {
           manualChunks(id) {
+            if (id.endsWith('/loaders/GLTFLoader.js')) return 'three-gltf';
+            if (id.endsWith('/loaders/HDRLoader.js')) return 'three-environment';
             if (id.includes('/node_modules/three/')) return 'three-vendor';
             if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/') || id.includes('/node_modules/scheduler/')) return 'react-vendor';
           },

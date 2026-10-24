@@ -8,11 +8,12 @@ import {
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { ArrowDownToLine, Box, LayoutGrid, Move, RotateCcw, RotateCw, Trash2, X } from "lucide-react";
-import { BUILDING_LABELS, CameraFocus, CameraRequest, dimensions, layoutDimensions, StudioConfig } from "./config";
-import { catalogItem, entryClearance, LayoutItem, nearestFreePlacement } from "./layout";
+import { BUILDING_LABELS, CameraFocus, CameraRequest, dimensions, entryForConfig, layoutDimensions, StudioConfig } from "./config";
+import { catalogItem, LayoutItem, nearestFreePlacement } from "./layout";
 import { disposeTree, StudioAssets } from "./assets";
 import { physicalPlane } from "./geometry";
-import { buildContainer } from "./model";
+import { buildContainer, updateDoorState } from "./model";
+import { CATALOG } from "./catalog";
 import { StudioCamera } from "./camera";
 import { upgradeInteriorAssets } from "./interior";
 export interface ViewerHandle {
@@ -26,10 +27,12 @@ interface Props {
   onLayoutChange: (layout: LayoutItem[]) => void;
   onFocus: (focus: CameraFocus) => void;
   onOpenPlan: () => void;
+  onFloorChange: (floor: 0 | 1) => void;
+  onToggleEditing: () => void;
   onToggleDoor: (door: "cargo" | "side" | "rear") => void;
 }
 export default forwardRef<ViewerHandle, Props>(function Viewport(
-  { config, request, selectedId, onSelect, onLayoutChange, onFocus, onOpenPlan, onToggleDoor },
+  { config, request, selectedId, onSelect, onLayoutChange, onFocus, onOpenPlan, onToggleDoor, onToggleEditing, onFloorChange },
   ref,
 ) {
   const mount = useRef<HTMLDivElement>(null),
@@ -120,7 +123,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       const damping = moving ? false : controls.update();
       system.clamp();
       renderer.render(scene, camera);
-      if (import.meta.env.DEV) {
+      {
         element.dataset.renderCount = String(++frameCount);
         element.dataset.drawCalls = String(renderer.info.render.calls);
         element.dataset.triangles = String(renderer.info.render.triangles);
@@ -152,7 +155,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
     scene.add(sunlight);
     const ground = new THREE.Mesh(
       physicalPlane(100, 100, 2),
-      assets.pbr("grass", "#a3bfa1"),
+      new THREE.MeshStandardMaterial({ color: "#d3d9ce", roughness: .98 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -181,6 +184,16 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       });
     const canvas = renderer.domElement;
     canvas.tabIndex = 0;
+    const contextLost = (event: Event) => {
+      event.preventDefault(); sceneReadyRef.current = false;
+      setSceneStatus({ ready: false, error: true, message: "The graphics connection was interrupted. Return to the plan and reopen 3D." });
+    };
+    const contextRestored = () => {
+      renderer.shadowMap.needsUpdate = true; sceneReadyRef.current = true;
+      setSceneStatus({ ready: true, error: false, message: "" }); invalidate();
+    };
+    canvas.addEventListener("webglcontextlost", contextLost);
+    canvas.addEventListener("webglcontextrestored", contextRestored);
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const floorPoint = new THREE.Vector3();
@@ -195,7 +208,9 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
     };
     const floorIntersection = (event: PointerEvent) => {
       setRay(event);
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -dimensions(configRef.current).floor);
+      const interior = modelRef.current?.getObjectByName("Interior layout");
+      const elevation = interior?.getWorldPosition(new THREE.Vector3()).y ?? 0;
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(dimensions(configRef.current).floor + elevation));
       return raycaster.ray.intersectPlane(plane, floorPoint);
     };
     const activeGroup = (id: string) => {
@@ -212,6 +227,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
     };
     const refreshSelectionBox = () => {
       clearSelectionBox();
+      if (configRef.current.layoutLocked) return;
       const group = selectedRef.current && activeGroup(selectedRef.current);
       if (!group) return;
       const helper = new THREE.BoxHelper(group, 0x111916);
@@ -222,36 +238,34 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       invalidate();
     };
     refreshSelectionRef.current = refreshSelectionBox;
-    const hitItem = (event: PointerEvent) => {
-      const interior = modelRef.current?.getObjectByName("Interior layout") as THREE.Group | undefined;
-      if (!interior) return null;
-      setRay(event);
-      const hits = raycaster.intersectObjects(interior.children.filter((child) => child.visible), true);
-      for (const hit of hits) {
-        let node: THREE.Object3D | null = hit.object;
-        while (node && node !== interior) {
-          if (node.userData.layoutItemId) return String(node.userData.layoutItemId);
-          node = node.parent;
-        }
-      }
-      return null;
-    };
-    const hitDoor = (event: PointerEvent): "cargo" | "side" | "rear" | null => {
+    let lastPick: PointerEvent | null = null;
+    let pickResult: { item: string | null; door: "cargo" | "side" | "rear" | null } = { item: null, door: null };
+    const pick = (event: PointerEvent) => {
+      if (event === lastPick) return pickResult;
+      lastPick = event; pickResult = { item: null, door: null };
       const model = modelRef.current;
-      if (!model) return null;
+      if (!model) return pickResult;
       setRay(event);
-      const hits = raycaster.intersectObject(model, true);
-      for (const hit of hits) {
+      const targets: THREE.Object3D[] = [];
+      model.traverseVisible((object) => { if ((object as THREE.Mesh).isMesh) targets.push(object); });
+      for (const hit of raycaster.intersectObjects(targets, false)) {
         let node: THREE.Object3D | null = hit.object;
+        let item: string | null = null, door: "cargo" | "side" | "rear" | null = null, visible = true;
         while (node && node !== model) {
-          if (node.userData.doorAction) return node.userData.doorAction as "cargo" | "side" | "rear";
+          if (!node.visible) visible = false;
+          if (node.userData.layoutItemId) item = String(node.userData.layoutItemId);
+          if (node.userData.doorAction) door = node.userData.doorAction;
           node = node.parent;
         }
-        // An opaque shell surface in front of a door should block the click.
-        if ((hit.object as THREE.Mesh).material) break;
+        if (!visible) continue;
+        if (item || door) { pickResult = { item, door }; break; }
+        const material = (hit.object as THREE.Mesh).material;
+        if (material && (Array.isArray(material) || !material.transparent || material.opacity > .35)) break;
       }
-      return null;
+      return pickResult;
     };
+    const hitItem = (event: PointerEvent) => configRef.current.layoutLocked ? null : pick(event).item;
+    const hitDoor = (event: PointerEvent) => pick(event).door;
     const pointerDown = (event: PointerEvent) => {
       if (event.button !== 0 || !sceneReadyRef.current) return;
       const id = hitItem(event);
@@ -305,7 +319,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       if (!item) return;
       const configNow = configRef.current;
       const bounds = layoutDimensions(configNow);
-      const next = event.type === "pointercancel" ? null : nearestFreePlacement({ ...item, x: placed.x, z: placed.z, onTopOf: undefined }, current, bounds.length, entryClearance(configNow.doorStyle, configNow.doorSide, bounds.length, bounds.width, configNow.doorPositionFt), bounds.width);
+      const next = event.type === "pointercancel" ? null : nearestFreePlacement({ ...item, x: placed.x, z: placed.z, onTopOf: undefined }, current, bounds.length, entryForConfig(configNow), bounds.width);
       if (!next) {
         activeGroup(item.id)?.position.set(item.x, 0, item.z);
         selectionHelperRef.current?.update();
@@ -357,6 +371,8 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       epoch.current++;
       cancelAnimationFrame(raf);
       observer.disconnect();
+      canvas.removeEventListener("webglcontextlost", contextLost);
+      canvas.removeEventListener("webglcontextrestored", contextRestored);
       canvas.removeEventListener("pointerdown", pointerDown);
       canvas.removeEventListener("pointermove", pointerMove);
       canvas.removeEventListener("pointerup", endDrag);
@@ -393,12 +409,15 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
       modelRef.current &&
       Object.keys(config).every(
         (key) =>
-          key === "color" ||
+          (key === "color" || key === "layoutLocked" || key === "cargoOpen" || (key === "sideDoorOpen" && config.doorStyle !== "roll-up")) ||
           config[key as keyof StudioConfig] === prev[key as keyof StudioConfig],
       )
     ) {
       const paints = (modelRef.current.userData.paints || [modelRef.current.userData.paint]) as THREE.MeshStandardMaterial[];
-      paints.forEach((paint) => paint?.color.set(config.color));
+      if (prev.color !== config.color) paints.forEach((paint) => paint?.color.set(config.color));
+      if (prev.cargoOpen !== config.cargoOpen || prev.sideDoorOpen !== config.sideDoorOpen) {
+        updateDoorState(modelRef.current, config); renderer.shadowMap.needsUpdate = true;
+      }
       invalidateRef.current();
       return;
     }
@@ -408,7 +427,9 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
     }
     sceneReadyRef.current = false;
     setSceneStatus({ ready: false, message: "Loading models and materials…", error: false });
+    const buildStarted = performance.now();
     const model = buildContainer(config, assets);
+    if (mount.current) mount.current.dataset.modelBuildMs = (performance.now() - buildStarted).toFixed(1);
     modelRef.current = model;
     scene.add(model);
     renderer.shadowMap.needsUpdate = true;
@@ -479,7 +500,7 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
   const rotateSelected = (direction: -90 | 90) => {
     if (!selectedItem) return;
     const rotation = ((selectedItem.rotation + direction + 360) % 360) as LayoutItem["rotation"];
-    const next = nearestFreePlacement({ ...selectedItem, rotation, onTopOf: undefined }, config.layout, planDim.length, entryClearance(config.doorStyle, config.doorSide, planDim.length, planDim.width, config.doorPositionFt), planDim.width);
+    const next = nearestFreePlacement({ ...selectedItem, rotation, onTopOf: undefined }, config.layout, planDim.length, entryForConfig(config), planDim.width);
     if (!next) {
       setEditNotice("Move this item into clear space before rotating it.");
       return;
@@ -495,14 +516,14 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
   };
   return (
     <main
-      className="studio-viewer"
+      className={config.buildingType === "stacked-office" ? "studio-viewer has-storeys" : "studio-viewer"}
       aria-label="Interactive 3D container preview"
     >
       <div ref={mount} className="studio-canvas" />
       <div className="studio-viewer-label">
         <span>YOUR CONTAINER / LIVE PREVIEW</span>
         <strong>
-          {BUILDING_LABELS[config.buildingType]}{config.buildingType === "foldout-home" ? ` · ${config.foldoutState === "expanded" ? "Expanded" : "Transport"}` : ""}
+          {CATALOG.find((design) => design.id === config.catalogId)?.name ?? BUILDING_LABELS[config.buildingType]}{config.buildingType === "foldout-home" ? ` · ${config.foldoutState === "expanded" ? "Expanded" : "Transport"}` : ""}
         </strong>
         <small>
           {dim.length.toFixed(2)} × {dim.width.toFixed(2)} ×{" "}
@@ -528,7 +549,8 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
         </button>
       </div>
       <div className="studio-canvas-dock">
-        {selectedItem && <div className="studio-edit-bar" aria-label="Selected furniture controls">
+        {config.buildingType === "stacked-office" && <div className="plan-floor-tabs" aria-label="3D storey">{([0,1] as const).map((floor) => <button type="button" key={floor} aria-pressed={(config.activeFloor ?? 0) === floor} onClick={() => onFloorChange(floor)}>{floor === 0 ? "Ground floor" : "Upper floor"}</button>)}</div>}
+        {selectedItem && !config.layoutLocked && <div className="studio-edit-bar" aria-label="Selected furniture controls">
           <div className="studio-edit-detail"><strong>{catalogItem(selectedItem.kind).label}</strong><span><Move size={13}/> Drag freely · {selectedItem.rotation}°</span></div>
           <div className="studio-edit-actions">
             <button type="button" onClick={() => rotateSelected(-90)}  aria-label="Rotate selected item left 90 degrees" title="Rotate left"><RotateCcw size={17}/></button>
@@ -539,14 +561,14 @@ export default forwardRef<ViewerHandle, Props>(function Viewport(
         </div>}
         <div className="studio-dock-main">
           <button type="button" className="studio-dock-plan" onClick={onOpenPlan}><LayoutGrid size={17}/> Floor plan</button>
-          <div className="studio-dock-divider"/>
+          <button type="button" onClick={onToggleEditing}>{config.layoutLocked ? "Edit layout" : "Lock layout"}</button><div className="studio-dock-divider"/>
           <div className="studio-view-tabs" aria-label="Camera views">
             {(["layout", "exterior", "front", "left", "right", "interior"] as CameraFocus[]).map((view) => <button type="button" key={view} aria-pressed={request.focus === view} onClick={() => onFocus(view)}>{view === "layout" ? "Layout 3D" : view[0].toUpperCase() + view.slice(1)}</button>)}
           </div>
         </div>
-        <span className="studio-dock-hint" role="status">{selectedItem ? editNotice : "Drag furniture over other pieces; release to find clear space"}</span>
+        <span className="studio-dock-hint" role="status">{config.layoutLocked ? "Fully furnished · furniture fixed in place" : selectedItem ? editNotice : "Drag furniture over other pieces; release to find clear space"}</span>
       </div>
-      {!sceneStatus.ready && <div className="studio-scene-gate" role="status" aria-live="polite"><div className="studio-scene-gate-card"><span>CONTAINER STUDIO / LIVE PREVIEW</span><strong>{sceneStatus.error ? "Preview could not load" : "Preparing your 3D view"}</strong><p>{sceneStatus.message}</p>{!sceneStatus.error ? <div className="studio-scene-gate-track"><i/></div> : <button type="button" onClick={() => window.location.reload()}>Retry loading</button>}</div></div>}
+      {!sceneStatus.ready && <div className="studio-scene-gate" role="status" aria-live="polite"><div className="studio-scene-gate-card"><span>CONTAINER STUDIO / LIVE PREVIEW</span><strong>{sceneStatus.error ? "Preview could not load" : "Preparing your 3D view"}</strong><p>{sceneStatus.message}</p>{!sceneStatus.error ? <div className="studio-scene-gate-track"><i/></div> : <button type="button" onClick={onOpenPlan}>Back to floor plan</button>}</div></div>}
     </main>
   );
 });

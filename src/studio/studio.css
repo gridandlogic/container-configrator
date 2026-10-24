@@ -831,3 +831,12 @@
 .studio-dock-hint { justify-self: center; padding: 3px 9px; background: #ffffffd9; color: #555; font-size: 10px; text-align: center; }
 .studio-canvas-dock button:focus-visible, .studio-boot button:focus-visible, .studio-scene-gate button:focus-visible, .floorplan-toolbar-actions button:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
 @media (max-width: 760px) { .studio-canvas-dock { bottom: 8px; width: calc(100% - 16px); max-width: none; } .studio-dock-main { width: 100%; } .studio-view-tabs button { padding: 0 10px; } .studio-edit-detail span { font-size: 9px; } .studio-edit-actions button { width: 34px; height: 34px; } .studio-dock-hint { font-size: 9px; } }
+
+/* Reserve space for the controls so furnished rooms remain fully visible. */
+.studio-canvas { bottom: 96px; }
+.studio-dock-main > button:not(.studio-dock-plan) { flex: none; min-height: 40px; padding: 0 12px; border: 0; background: #f0f2ed; color: #26352b; font-size: 11px; cursor: pointer; }
+@media (max-width: 900px) { .container-studio { grid-template-rows: 60dvh 40dvh; } .studio-canvas { bottom: 88px; } }
+
+.studio-viewer.has-storeys .studio-canvas { bottom: 150px; }
+
+.studio-size-warning { margin: 0; padding: 12px 18px; background: #fff3dd; color: #634817; font-size: 12px; line-height: 1.5; border-bottom: 1px solid #ead7b5; }

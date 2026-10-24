@@ -1,4 +1,4 @@
-import { LayoutItem, presetLayout } from "./layout";
+import { entryClearance, LayoutItem, presetLayout } from "./layout";
 
 export type Side = "left" | "right";
 export type BuildingType =
@@ -81,6 +81,7 @@ export interface StudioConfig {
   terraceFt?: number;
   solar?: boolean;
   detailedModels?: boolean;
+  layoutLocked?: boolean;
   doorPositionFt?: number;
   windowPositionFt?: number;
   washroom?: { shower: boolean; toilet: "western" | "squat"; tile: string; fixtures: "chrome" | "black"; door: "sliding" | "hinged" };
@@ -264,4 +265,12 @@ export function configReducer(
 export interface CameraRequest {
   focus: CameraFocus;
   sequence: number;
+}
+
+/** Entry coordinates follow the actual facade of each assembly. */
+export function entryForConfig(config: StudioConfig) {
+  const bounds = layoutDimensions(config);
+  const entry = entryClearance(config.doorStyle, config.doorSide, bounds.length, bounds.width, config.doorPositionFt);
+  if (entry && (config.buildingType === "courtyard-l" || config.buildingType === "courtyard-u")) entry.z = config.catalogId === "courtyard" ? 0 : -bounds.width / 2 + 2.438;
+  return entry;
 }

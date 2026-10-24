@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CameraFocus, dimensions, StudioConfig, WINDOWS } from "./config";
+import { configuredDesign, roomZones } from "./catalog";
 import { windowPosition } from "./layout";
 interface Pose {
   position: THREE.Vector3;
@@ -39,6 +40,34 @@ export class StudioCamera {
       V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
     const fit = Math.max(1, 1 / this.camera.aspect),
       distance = Math.max(10.8, L * 1.5, W * 1.8) * fit;
+    const viewSign = config.doorSide === "left" ? 1 : -1;
+    const roomHeight = config.highCube ? 2.896 : 2.591;
+    const layoutTargetY = F + roomHeight / 2;
+    const pitch = .38, upY = Math.sin(pitch), upZ = Math.cos(pitch);
+    const tangent = Math.tan(21 * Math.PI / 180);
+    let layoutDistance = 0;
+    for (const x of [-L / 2, L / 2]) for (const y of [-roomHeight / 2, roomHeight / 2]) for (const z of [-W / 2, W / 2]) {
+      const near = y * upZ + viewSign * z * upY;
+      layoutDistance = Math.max(layoutDistance, near + Math.abs(x) / (tangent * this.camera.aspect), near + Math.abs(y * upY - viewSign * z * upZ) / tangent);
+    }
+    layoutDistance *= 1.14;
+    const design = configuredDesign(config);
+    const lounge = design ? roomZones(design, config.activeFloor ?? 0).find((zone) => zone.name === "Living / dining") : undefined;
+    const eyeX = lounge ? (config.doorPositionFt ?? 0) * .3048 : L / 2 - .65;
+    const eyeZ = lounge ? design?.id === "courtyard" ? -.50 : -W / 2 + .45 : .15;
+    const eyeFloor = F + (!config.cutaway && config.buildingType === "stacked-office" ? (config.activeFloor ?? 0) * ((config.highCube ? 2.896 : 2.591) + .08) : 0);
+    const exteriorDirection = V(.65, .40, viewSign * .70).normalize();
+    const exteriorRight = V(exteriorDirection.z, 0, -exteriorDirection.x).normalize();
+    const exteriorUp = V(0,0,0).crossVectors(exteriorDirection, exteriorRight).normalize();
+    const outsideHeight = H + (config.roofProfile === "gable" ? .7 : .2);
+    const outsideWidth = W + (config.buildingType === "stacked-office" ? 3.0 : config.canopy ? 1.5 : .8);
+    const terrace = (config.terraceFt ?? 0) * .3048;
+    let exteriorDistance = 0;
+    for (const x of [-(L + terrace) / 2, (L + terrace) / 2]) for (const y of [-outsideHeight / 2, outsideHeight / 2]) for (const z of [-outsideWidth / 2, outsideWidth / 2]) {
+      const corner = V(x,y,z), near = corner.dot(exteriorDirection), tangent = Math.tan(20 * Math.PI / 180);
+      exteriorDistance = Math.max(exteriorDistance, near + Math.abs(corner.dot(exteriorRight)) / (tangent * this.camera.aspect), near + Math.abs(corner.dot(exteriorUp)) / tangent);
+    }
+    exteriorDistance *= 1.15;
     const openingPose = (kind: "window" | "door", sign: number): Pose => {
       const window = WINDOWS.find(
         (option) => option.id === config.windowStyle,
@@ -68,13 +97,13 @@ export class StudioCamera {
       "door-left": openingPose("door", 1),
       "door-right": openingPose("door", -1),
       exterior: {
-        position: V(distance * 0.66, H * 0.7 + distance * 0.3, distance * 0.75),
+        position: V(distance * 0.66, H * 0.7 + distance * 0.3, viewSign * distance * 0.75),
         target: V(0, H * 0.43, 0),
         fov: 40,
         interior: false,
       },
       layout: {
-        position: V(0, H + Math.max(9, L * 1.55) * fit, Math.max(1.2, L * 0.1) * fit),
+        position: V(0, layoutTargetY + layoutDistance * upZ, viewSign * layoutDistance * upY),
         target: V(0, F, 0),
         fov: 42,
         interior: false,
@@ -104,8 +133,8 @@ export class StudioCamera {
         interior: false,
       },
       interior: {
-        position: V(L / 2 - 0.55, 1.72, 0.15),
-        target: V(-L / 2 + 0.8, 1.45, 0),
+        position: V(eyeX, eyeFloor + 1.52, eyeZ),
+        target: V(lounge ? lounge.x - lounge.w * .3 : -L / 2 + .8, eyeFloor + 1.15, lounge?.z ?? 0),
         fov: 68,
         interior: true,
       },

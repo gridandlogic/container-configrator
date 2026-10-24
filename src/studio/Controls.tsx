@@ -67,6 +67,7 @@ interface Props {
   onChange: (patch: Partial<StudioConfig>, focus: CameraFocus) => void;
   onFocus: (focus: CameraFocus) => void;
   onSave: () => void;
+  onReset: () => void;
   onCatalog: (design: CatalogDesign) => void;
   onOpenPlan: () => void;
   selectedItemId: string | null;
@@ -76,7 +77,7 @@ interface Props {
   onSelectLayoutItem: (id: string) => void;
   onRemoveLayoutItem: (id: string) => void;
 }
-export default function Controls({ onCatalog, config, onChange, onFocus, onSave, onOpenPlan, selectedItemId, layoutNotice, onLayoutPreset, onAddLayoutItem, onSelectLayoutItem, onRemoveLayoutItem }: Props) {
+export default function Controls({ onCatalog, config, onChange, onFocus, onSave, onReset, onOpenPlan, selectedItemId, layoutNotice, onLayoutPreset, onAddLayoutItem, onSelectLayoutItem, onRemoveLayoutItem }: Props) {
   const [open, setOpen] = useState<Category | null>("layout");
   const [saved, setSaved] = useState(false);
   const dim = dimensions(config);
@@ -155,6 +156,7 @@ export default function Controls({ onCatalog, config, onChange, onFocus, onSave,
   );
   return (
     <aside className="studio-control-panel" aria-label="Studio configuration">
+      {layoutNotice.startsWith("That size") && <p className="studio-size-warning" role="alert">{layoutNotice}</p>}
       <div className="studio-intro">
         <div className="studio-identity">
           <img
@@ -204,12 +206,12 @@ export default function Controls({ onCatalog, config, onChange, onFocus, onSave,
               <div className="studio-section-body">
                 {category.id === "layout" && <CatalogControls activeId={config.catalogId} onChoose={onCatalog}/>}
                 {category.id === "washroom" && <WashroomOptions config={config} onChange={(patch) => onChange(patch, "layout")}/>}
-                {category.id === "layout" && <LayoutControls layout={config.layout} selectedId={selectedItemId} notice={layoutNotice} onPreset={onLayoutPreset} onAdd={onAddLayoutItem} onSelect={onSelectLayoutItem} onRemove={onRemoveLayoutItem}/>}
+                {category.id === "layout" && <LayoutControls locked={Boolean(config.layoutLocked)} layout={config.layout.filter((item) => (item.floor ?? 0) === (config.activeFloor ?? 0))} selectedId={selectedItemId} notice={layoutNotice} onPreset={onLayoutPreset} onAdd={onAddLayoutItem} onSelect={onSelectLayoutItem} onRemove={onRemoveLayoutItem}/>}
                 {category.id === "container" && (
                   <>
                     <div className="design-options studio-two">
-                      <label>Length (ft)<input type="number" min="16" max="45" step="1" value={config.lengthFt ?? config.size} onChange={(e) => { const value = +e.target.value; if (value >= 16 && value <= 45) onChange({ lengthFt: value, catalogId: undefined }, "exterior"); }}/></label>
-                      <label>Module width (ft)<select value={config.widthFt ?? 8} onChange={(e) => onChange({ widthFt: +e.target.value, catalogId: undefined }, "exterior")}>{[8,10,12,16,24].map((width) => <option key={width} value={width}>{width} ft</option>)}</select></label>
+                      <label>Length (ft)<input type="number" min="16" max="45" step="1" value={config.lengthFt ?? config.size} onChange={(e) => { const value = +e.target.value; if (value >= 16 && value <= 45) onChange({ lengthFt: value }, "exterior"); }}/></label>
+                      <label>Module width (ft)<select value={config.widthFt ?? 8} onChange={(e) => onChange({ widthFt: +e.target.value }, "exterior")}>{[8,10,12,16,24].map((width) => <option key={width} value={width}>{width} ft</option>)}</select></label>
                     </div>
                     <p className="studio-label">Structure system</p>
                     <div className="studio-two">
@@ -579,7 +581,7 @@ export default function Controls({ onCatalog, config, onChange, onFocus, onSave,
       <div className="studio-panel-footer">
         <div>
           <span>
-            {BUILDING_LABELS[config.buildingType].toUpperCase()}
+            {(CATALOG.find((design) => design.id === config.catalogId)?.name ?? BUILDING_LABELS[config.buildingType]).toUpperCase()}
           </span>
           <small>
             {config.buildingType === "foldout-home" ? `${config.foldoutState === "expanded" ? "Expanded" : "Transport"} / ` : `${config.size}′ ${config.highCube ? "high cube" : "standard"} / `}{config.windowStyle === "none"
@@ -602,7 +604,7 @@ export default function Controls({ onCatalog, config, onChange, onFocus, onSave,
           type="button"
           className="studio-reset"
           aria-label="Reset design"
-          onClick={() => onChange(DEFAULT_CONFIG, "exterior")}
+          onClick={onReset}
         >
           Reset
         </button>

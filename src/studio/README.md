@@ -95,7 +95,25 @@ refine the preview in the background instead of blocking editing. Glazing uses a
 lightweight transparent material to avoid a transmission render pass.
 
 Run `node scripts/check-catalog.mjs` to check all preset dimensions, both floors,
-washroom bounds, entry clearances, and 34 roof/cutaway 3D assemblies. The production
+washroom bounds, entry clearances, and 45 model assemblies and door actions. The production
 planner reached its ready marker at 852 ms in one local browser check. This is not
 a guarantee for other devices or networks. The marker is exposed as the
 `data-plan-ready-ms` attribute on the HTML element.
+
+## Furnished model presets
+
+Catalog designs now include complete furniture arrangements, bedroom pocket doors, wardrobes, fitted kitchen cabinets, enclosed washrooms and desks with chairs. Home entries are placed in clear circulation space; room windows avoid entry doors. Finished residential end walls replace cargo doors in converted buildings.
+
+The default view loads the furnished two-bedroom family home. Furniture stays fixed while exploring; use **Edit layout** to customize. Fold-out homes have open module connections and two private bedrooms, a study and four dining seats. Duplexes have fitted interiors on both storeys and an exterior stair with landing and guards. The layout camera fits the room bounds and leaves space for the controls.
+
+`node scripts/check-catalog.mjs` checks unadjusted preset placements, beds, wardrobes, kitchens, seating, doors, window bounds, actual model footprints, both floors and 45 model assemblies including fold-out transport and deployed states.
+
+## Model performance and interaction
+
+Opaque fittings are batched inside their original furniture or door groups. Repeated primitive geometry and identical materials are shared; corner castings use GPU instances. Glass stays separate for correct transparency. Cutaway duplexes construct only the selected shell. Door actions update transforms and preserve all existing model geometry. Model/HDR loaders are imported only when needed, in separate chunks.
+
+Finish maps use 512 px preview textures: 15 color/normal/ARM maps were reduced from 8,953,038 to 312,602 bytes. The original maps are backed up under the ignored `node_modules/.cache/original-preview-textures` folder. `scripts/optimize-textures.py` documents the Pillow compression settings and skips already resized files.
+
+Run `node scripts/profile-models.mjs node_modules/.cache/models-after.json` to measure visible mesh submissions, triangles, unique geometry bytes and build time across 36 roof/cutaway views. These are local scene measurements, not a network or FPS guarantee. The production canvas exposes draw-call, triangle, geometry, texture, build-time and render-count attributes for inspection. Rendering stops when the scene is idle.
+
+Room geometry follows edited catalog dimensions. Resizing regenerates complete furnishings and rejects footprints that cannot fit them. Building-type controls load the corresponding furnished template. Item lists follow the selected floor, and removing pieces requires unlocking the layout.
